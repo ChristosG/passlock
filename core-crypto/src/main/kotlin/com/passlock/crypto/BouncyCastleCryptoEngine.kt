@@ -11,6 +11,11 @@ class BouncyCastleCryptoEngine(
     private val secureRandom: SecureRandom = SecureRandom(),
 ) : CryptoEngine {
 
+    /**
+     * Derives a 256-bit key via Argon2id. The caller retains ownership of [passphrase],
+     * [salt], and the returned key, and is responsible for zeroizing the passphrase and
+     * the returned key when done. This engine does not wipe caller-owned inputs.
+     */
     override fun deriveKey(passphrase: CharArray, salt: ByteArray, params: KdfParams): ByteArray {
         val argonParams = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
             .withVersion(Argon2Parameters.ARGON2_VERSION_13)
@@ -26,6 +31,8 @@ class BouncyCastleCryptoEngine(
     }
 
     override fun aeadEncrypt(key: ByteArray, plaintext: ByteArray, aad: ByteArray): ByteArray {
+        // Fresh random 96-bit nonce per call. Safe because each call uses a freshly random
+        // nonce and we never approach 2^32 encryptions under a single key in this app.
         val nonce = ByteArray(NONCE_LEN).also(secureRandom::nextBytes)
         val cipher = Cipher.getInstance(TRANSFORM)
         cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(key, "AES"), GCMParameterSpec(TAG_BITS, nonce))

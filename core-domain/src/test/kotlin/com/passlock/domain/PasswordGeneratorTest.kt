@@ -37,4 +37,22 @@ class PasswordGeneratorTest {
             gen.generate(PasswordPolicy(length = 8, lower = false, upper = false, digits = false, symbols = false))
         }
     }
+
+    @Test
+    fun `generateChars returns a CharArray of the requested length`() {
+        val chars = gen.generateChars(PasswordPolicy(length = 16))
+        assertEquals(16, chars.size)
+    }
+
+    @Test
+    fun `generateChars includes at least one of every selected class`() {
+        repeat(50) {
+            val chars = gen.generateChars(PasswordPolicy(length = 8))
+            val s = String(chars)
+            assert(s.any { it.isLowerCase() })
+            assert(s.any { it.isUpperCase() })
+            assert(s.any { it.isDigit() })
+            assert(s.any { !it.isLetterOrDigit() })
+        }
+    }
 }
