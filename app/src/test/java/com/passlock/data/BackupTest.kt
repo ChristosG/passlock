@@ -2,6 +2,7 @@ package com.passlock.data
 
 import com.passlock.crypto.BouncyCastleCryptoEngine
 import com.passlock.crypto.KdfParams
+import com.passlock.crypto.RecoveryKit
 import com.passlock.domain.Field
 import com.passlock.domain.FieldType
 import com.passlock.domain.Item
@@ -71,6 +72,17 @@ class BackupTest {
         val blob = Backup.export(vault, emptyMap(), "pass".toCharArray(), recoveryKey = kit, params = fast)
         assertTrue(Backup.peekNeedsKit(blob))
         assertEquals(vault, Backup.import(blob, "pass".toCharArray(), kit)?.vault)
+    }
+
+    @Test
+    fun `full kit round-trip through the Base32 string mirrors the app flow`() {
+        val engine = BouncyCastleCryptoEngine()
+        val kitString = RecoveryKit.encode(engine.randomBytes(RecoveryKit.SECRET_BYTES)) // shown at export
+        val exportKit = RecoveryKit.decode(kitString)                                    // exportBytes decodes
+        val blob = Backup.export(vault, emptyMap(), "pass".toCharArray(), exportKit, fast)
+        assertTrue(Backup.peekNeedsKit(blob))
+        val restoreKit = RecoveryKit.decode(kitString)                                   // user re-enters same string
+        assertEquals(vault, Backup.import(blob, "pass".toCharArray(), restoreKit)?.vault)
     }
 
     @Test

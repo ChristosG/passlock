@@ -205,14 +205,32 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var expectingResult = false
+    private var pickerFlowActive = false
 
     /** Call right before launching a file/photo picker so it doesn't trip auto-lock. */
     fun expectActivityResult() {
         expectingResult = true
     }
 
-    /** Consumes the "expecting a picker result" flag; used to skip auto-lock once. */
+    /**
+     * Sticky auto-lock suppression for multi-step flows (e.g. export: passphrase → Recovery Kit
+     * dialog → file picker). A single [expectActivityResult] only covers one backgrounding, but
+     * here the user may leave the app to save the kit AND go through the picker — several ON_STOPs.
+     * If the vault locked mid-flow it would zeroize the key and the export would silently write an
+     * empty file. The flow MUST call [endPickerFlow] at every exit so locking resumes.
+     */
+    fun beginPickerFlow() {
+        pickerFlowActive = true
+    }
+
+    fun endPickerFlow() {
+        pickerFlowActive = false
+        expectingResult = false
+    }
+
+    /** Whether an ON_STOP should skip the auto-lock (sticky flow, or a single expected picker). */
     fun consumeExpectedResult(): Boolean {
+        if (pickerFlowActive) return true
         val expected = expectingResult
         expectingResult = false
         return expected

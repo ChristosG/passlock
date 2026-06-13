@@ -854,8 +854,12 @@ fun SettingsScreen(
                     context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
                 }.isSuccess
                 working = false
+                vm.endPickerFlow()
                 Toast.makeText(context, if (ok) "Encrypted backup saved ✓" else "Export failed", Toast.LENGTH_LONG).show()
             }
+        } else {
+            vm.endPickerFlow()
+            if (uri != null) Toast.makeText(context, "Export interrupted — please try again", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -986,11 +990,13 @@ fun SettingsScreen(
             onConfirm = { pass ->
                 showExport = false
                 pendingPass = pass
+                // Suppress auto-lock across the whole export (kit dialog + picker), not just one
+                // backgrounding — otherwise leaving to save the kit zeroizes the key mid-export.
+                vm.beginPickerFlow()
                 if (vm.requireRecoveryKit) {
                     kitToShow = vm.generateRecoveryKit()
                 } else {
                     pendingKit = null
-                    vm.expectActivityResult()
                     createDoc.launch("passlock-backup.plk")
                 }
             },
@@ -1004,10 +1010,9 @@ fun SettingsScreen(
             onConfirm = {
                 kitToShow = null
                 pendingKit = k
-                vm.expectActivityResult()
                 createDoc.launch("passlock-backup.plk")
             },
-            onDismiss = { kitToShow = null; pendingPass = null },
+            onDismiss = { kitToShow = null; pendingPass = null; vm.endPickerFlow() },
         )
     }
 

@@ -21,9 +21,10 @@ data class KdfParams(
 
         /**
          * Stronger params for backups, which live in riskier locations and grant an attacker
-         * unlimited offline guesses. Raised to 256 MiB / t=4 — backups are made rarely and can
-         * tolerate ~1–2 s. Defense-in-depth behind the Recovery Kit, not a substitute for it.
+         * unlimited offline guesses. 128 MiB / t=4 — a device-safe amount (256 MiB risks OOM on
+         * phones whose app heap is ~256 MB, especially while images are also decrypted in memory
+         * during export). Defense-in-depth behind the Recovery Kit, never a substitute for it.
          */
-        val BACKUP_DEFAULT = KdfParams(memoryKib = 256 * 1024, iterations = 4, parallelism = 1)
+        val BACKUP_DEFAULT = KdfParams(memoryKib = 128 * 1024, iterations = 4, parallelism = 1)
     }
 }

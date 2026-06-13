@@ -25,7 +25,7 @@ A **fully-offline, hardware-backed encrypted vault** for Android — for your mo
 A backup is a portable file, so it can't rely on the phone's hardware key and **can't count failed attempts** — an attacker with the file gets unlimited offline guesses. PassLock closes that gap by adding entropy the attacker can't guess:
 
 - **Recovery Kit (default ON):** a 128-bit key generated at export and shown once as a Crockford-Base32 code (`K7QF-2M9X-…`, with a typo-catching checksum). It is mixed into Argon2id as the *secret / pepper* parameter and is **never written to the file**. Restoring needs **both** the kit *and* the passphrase — so even a weak passphrase plus the full source code leaves a 2¹²⁸ wall. (Optional: disable the kit in Settings for passphrase-only backups.)
-- **Hardened KDF:** Argon2id at 256 MiB / t=4 for backups (they're made rarely and can afford it).
+- **Hardened KDF:** Argon2id at 128 MiB / t=4 for backups (a device-safe amount; the Recovery Kit, not KDF cost, is what makes brute force infeasible).
 - **Tamper-evident:** the full header (salt + Argon2 params) is bound as AEAD AAD, so the cost parameters can't be silently downgraded to speed up cracking.
 - **Shape-hiding:** the payload is Deflate-compressed and padded to a 4 KiB bucket, so the file size doesn't reveal how many items the vault holds.
 - Backups bundle your images too, re-encrypted under the new device key on restore. Older backup formats still import.
