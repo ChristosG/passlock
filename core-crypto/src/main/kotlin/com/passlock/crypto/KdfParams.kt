@@ -19,7 +19,7 @@ data class KdfParams(
         /** Conservative defaults for daily unlock; calibrate per device at runtime. */
         val DAILY_DEFAULT = KdfParams(memoryKib = 64 * 1024, iterations = 3, parallelism = 1)
 
-        /** Stronger params for backups, which may live in riskier locations. */
-        val BACKUP_DEFAULT = KdfParams(memoryKib = 256 * 1024, iterations = 4, parallelism = 1)
+        /** Stronger params for backups, which may live in riskier locations (mobile-safe memory). */
+        val BACKUP_DEFAULT = KdfParams(memoryKib = 128 * 1024, iterations = 4, parallelism = 1)
     }
 }

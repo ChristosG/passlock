@@ -59,7 +59,14 @@ import com.passlock.domain.FieldType
 import com.passlock.domain.Item
 import com.passlock.domain.PasswordPolicy
 import com.passlock.domain.Template
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.Button
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 private fun templateIcon(t: Template) = when (t) {
@@ -91,7 +98,10 @@ fun VaultListScreen(vm: VaultViewModel, onEnableBiometric: (() -> Unit)?) {
         topBar = {
             TopAppBar(
                 title = { Text("🔐 Vault", fontWeight = FontWeight.Bold) },
-                actions = { TextButton(onClick = vm::lock) { Text("Lock") } },
+                actions = {
+                    TextButton(onClick = vm::openSettings) { Text("⚙") }
+                    TextButton(onClick = vm::lock) { Text("Lock") }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
@@ -536,4 +546,125 @@ private fun BiometricEnrollBanner(onEnable: () -> Unit) {
             TextButton(onClick = onEnable) { Text("Enable") }
         }
     }
+}
+
+@Composable
+fun SettingsScreen(vm: VaultViewModel) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showExport by remember { mutableStateOf(false) }
+    var pendingPass by remember { mutableStateOf<String?>(null) }
+    var working by remember { mutableStateOf(false) }
+
+    val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val pass = pendingPass
+        pendingPass = null
+        if (uri != null && pass != null) {
+            working = true
+            scope.launch {
+                val bytes = vm.exportBytes(pass.toCharArray())
+                val ok = bytes != null && runCatching {
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                }.isSuccess
+                working = false
+                Toast.makeText(context, if (ok) "Encrypted backup saved ✓" else "Export failed", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings", fontWeight = FontWeight.Bold) },
+                navigationIcon = { TextButton(onClick = vm::back) { Text("‹ Back") } },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.primary,
+                ),
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Encrypted backup", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            Text(
+                "Export an encrypted .plk file protected by a separate recovery passphrase. " +
+                    "Keep that passphrase safe — without it the backup can't be opened, and there's no recovery.",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = { showExport = true },
+                enabled = !working,
+                modifier = Modifier.fillMaxWidth().height(50.dp),
+            ) { Text(if (working) "Exporting…" else "Export encrypted backup") }
+
+            Spacer(Modifier.height(8.dp))
+            Text("Security", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            Text(
+                "• Offline — no network permission\n" +
+                    "• AES-256-GCM + Argon2id\n" +
+                    "• Hardware-wrapped key (StrongBox/TEE)\n" +
+                    "• Screenshots blocked · auto-lock on background",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    if (showExport) {
+        ExportPassphraseDialog(
+            onDismiss = { showExport = false },
+            onConfirm = { pass ->
+                showExport = false
+                pendingPass = pass
+                createDoc.launch("passlock-backup.plk")
+            },
+        )
+    }
+}
+
+@Composable
+private fun ExportPassphraseDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var pass by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    val ok = pass.length >= 8 && pass == confirm
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = { onConfirm(pass) }, enabled = ok) { Text("Choose file") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        title = { Text("Recovery passphrase") },
+        text = {
+            Column {
+                Text(
+                    "Used only to encrypt this backup. Make it strong; you'll need it to restore.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = pass,
+                    onValueChange = { pass = it },
+                    label = { Text("Recovery passphrase (8+)") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = confirm,
+                    onValueChange = { confirm = it },
+                    label = { Text("Confirm") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
 }

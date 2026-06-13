@@ -2,6 +2,9 @@
 
 package com.passlock.ui
 
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,11 +25,13 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,9 +49,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.passlock.Screen
 import com.passlock.VaultUiState
 import com.passlock.VaultViewModel
+import kotlinx.coroutines.launch
 import javax.crypto.Cipher
 
-/** Shows a strong-biometric prompt bound to [cipher]; [onSuccess] gets the authorized cipher. */
 internal fun authenticateBiometric(
     activity: FragmentActivity,
     cipher: Cipher,
@@ -79,7 +85,6 @@ internal fun authenticateBiometric(
 
 @Composable
 fun PassLockRoot(vm: VaultViewModel) {
-    // Auto-lock: seal the vault whenever the app leaves the foreground (background / screen off).
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -89,36 +94,37 @@ fun PassLockRoot(vm: VaultViewModel) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    val activity = LocalContext.current as? FragmentActivity
+    val context = LocalContext.current
+    val activity = context as? FragmentActivity
+    val scope = rememberCoroutineScope()
 
     fun triggerBiometricUnlock() {
         val act = activity ?: return
         val cipher = vm.decryptCipherForUnlock() ?: return
-        authenticateBiometric(
-            act, cipher, "Unlock PassLock", "Use your fingerprint or face",
-            onSuccess = { vm.confirmBiometricUnlock(it) },
-            onError = { },
-        )
+        authenticateBiometric(act, cipher, "Unlock PassLock", "Use your fingerprint or face", { vm.confirmBiometricUnlock(it) }, { })
     }
 
     fun triggerBiometricEnroll() {
         val act = activity ?: return
         val cipher = vm.encryptCipherForEnroll() ?: return
-        authenticateBiometric(
-            act, cipher, "Enable biometric unlock", "Confirm to link your biometrics",
-            onSuccess = { vm.confirmEnroll(it) },
-            onError = { },
-        )
+        authenticateBiometric(act, cipher, "Enable biometric unlock", "Confirm to link your biometrics", { vm.confirmEnroll(it) }, { })
+    }
+
+    // Restore-from-backup file picker.
+    var restoreBytes by remember { mutableStateOf<ByteArray?>(null) }
+    val openDoc = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            if (bytes != null) restoreBytes = bytes else Toast.makeText(context, "Couldn't read that file", Toast.LENGTH_LONG).show()
+        }
     }
 
     when (val state = vm.ui) {
         is VaultUiState.Unlocked -> when (val sc = vm.screen) {
-            is Screen.List -> VaultListScreen(
-                vm = vm,
-                onEnableBiometric = if (vm.biometricCapable && !vm.biometricEnrolled) ::triggerBiometricEnroll else null,
-            )
-            is Screen.Detail -> ItemDetailScreen(vm = vm, itemId = sc.itemId)
-            is Screen.Editor -> ItemEditorScreen(vm = vm, itemId = sc.itemId)
+            is Screen.List -> VaultListScreen(vm, if (vm.biometricCapable && !vm.biometricEnrolled) ::triggerBiometricEnroll else null)
+            is Screen.Detail -> ItemDetailScreen(vm, sc.itemId)
+            is Screen.Editor -> ItemEditorScreen(vm, sc.itemId)
+            is Screen.Settings -> SettingsScreen(vm)
         }
         else -> AuthScreen(
             isSetup = state is VaultUiState.Setup,
@@ -127,8 +133,59 @@ fun PassLockRoot(vm: VaultViewModel) {
             onSubmit = vm::submitAuth,
             showBiometric = state is VaultUiState.Locked && vm.biometricCapable && vm.biometricEnrolled,
             onBiometric = ::triggerBiometricUnlock,
+            onRestore = { openDoc.launch(arrayOf("*/*")) },
         )
     }
+
+    restoreBytes?.let { bytes ->
+        RestoreDialog(
+            onDismiss = { restoreBytes = null },
+            onConfirm = { recovery, master ->
+                restoreBytes = null
+                scope.launch {
+                    val ok = vm.restoreFromBackup(bytes, recovery.toCharArray(), master.toCharArray())
+                    if (!ok) Toast.makeText(context, "Restore failed — wrong passphrase or bad file", Toast.LENGTH_LONG).show()
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun RestoreDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+    var recovery by remember { mutableStateOf("") }
+    var master by remember { mutableStateOf("") }
+    val canRestore = recovery.isNotEmpty() && master.length >= 8
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = { onConfirm(recovery, master) }, enabled = canRestore) { Text("Restore") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        title = { Text("Restore backup") },
+        text = {
+            Column {
+                Text("This replaces any vault on this device.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = recovery,
+                    onValueChange = { recovery = it },
+                    label = { Text("Recovery passphrase") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = master,
+                    onValueChange = { master = it },
+                    label = { Text("New master password (8+)") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
 }
 
 @Composable
@@ -139,6 +196,7 @@ fun AuthScreen(
     onSubmit: (String) -> Unit,
     showBiometric: Boolean = false,
     onBiometric: () -> Unit = {},
+    onRestore: () -> Unit = {},
 ) {
     var password by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
@@ -216,7 +274,9 @@ fun AuthScreen(
                     Text("Unlock with biometrics")
                 }
             }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(10.dp))
+            TextButton(onClick = onRestore, enabled = !busy) { Text("Restore from backup") }
+            Spacer(Modifier.height(16.dp))
             Text("Offline · encrypted · no network", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

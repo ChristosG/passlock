@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.passlock.data.Backup
 import com.passlock.data.KeystoreManager
 import com.passlock.data.KeystoreOuterWrap
 import com.passlock.data.VaultStore
@@ -44,6 +45,7 @@ sealed interface Screen {
     data object List : Screen
     data class Detail(val itemId: String) : Screen
     data class Editor(val itemId: String?) : Screen
+    data object Settings : Screen
 }
 
 class VaultViewModel(app: Application) : AndroidViewModel(app) {
@@ -153,7 +155,57 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     fun openList() { screen = Screen.List }
     fun openDetail(id: String) { screen = Screen.Detail(id) }
     fun openEditor(id: String?) { screen = Screen.Editor(id) }
+    fun openSettings() { screen = Screen.Settings }
     fun back() { screen = Screen.List }
+
+    // ---------------- Encrypted backup ----------------
+
+    /** Produces an encrypted backup of the current vault under a recovery passphrase. */
+    suspend fun exportBytes(passphrase: CharArray): ByteArray? = withContext(Dispatchers.Default) {
+        val v = vault ?: return@withContext null
+        try {
+            Backup.export(v, passphrase)
+        } catch (e: Exception) {
+            null
+        } finally {
+            passphrase.fill(' ')
+        }
+    }
+
+    /**
+     * Restores a backup onto this device: decrypts it with the recovery passphrase, then
+     * seals it under a freshly chosen master password (and this device's hardware key).
+     * Replaces any existing vault. Returns false if the recovery passphrase is wrong.
+     */
+    suspend fun restoreFromBackup(bytes: ByteArray, recoveryPassphrase: CharArray, masterPassword: CharArray): Boolean {
+        val imported = withContext(Dispatchers.Default) {
+            try {
+                Backup.import(bytes, recoveryPassphrase)
+            } catch (e: Exception) {
+                null
+            } finally {
+                recoveryPassphrase.fill(' ')
+            }
+        } ?: run { masterPassword.fill(' '); return false }
+
+        val opened = withContext(Dispatchers.Default) {
+            try {
+                store.disableBiometric()
+                val o = store.create(masterPassword)
+                store.save(o.dek, imported)
+                o
+            } catch (e: Exception) {
+                null
+            } finally {
+                masterPassword.fill(' ')
+            }
+        } ?: return false
+
+        keystore.deleteBiometricKey()
+        biometricEnrolled = false
+        unlockInto(opened.dek, imported)
+        return true
+    }
 
     fun setSearchText(text: String) { query = query.copy(text = text) }
     fun setTemplateFilter(template: Template?) { query = query.copy(template = template, favoritesOnly = false) }
