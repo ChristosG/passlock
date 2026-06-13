@@ -199,7 +199,7 @@ private fun RestoreDialog(needsKit: Boolean, onDismiss: () -> Unit, onConfirm: (
         onDismissRequest = onDismiss,
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(recovery, if (needsKit) kit else null, master) },
+                onClick = { onConfirm(recovery, kit.ifBlank { null }, master) },
                 enabled = canRestore,
             ) { Text("Restore") }
         },
@@ -209,16 +209,20 @@ private fun RestoreDialog(needsKit: Boolean, onDismiss: () -> Unit, onConfirm: (
             Column {
                 Text("This replaces any vault on this device.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
-                if (needsKit) {
-                    OutlinedTextField(
-                        value = kit,
-                        onValueChange = { kit = it },
-                        label = { Text("Recovery kit") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(10.dp))
-                }
+                OutlinedTextField(
+                    value = kit,
+                    onValueChange = { kit = it },
+                    label = { Text("Recovery kit") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    if (needsKit) "Required — this backup was sealed with a Recovery Kit."
+                    else "Leave blank unless your backup has a Recovery Kit (older backups don't).",
+                    fontSize = 11.sp,
+                    color = if (needsKit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
                 PasswordField(
                     value = recovery,
                     onValueChange = { recovery = it },

@@ -140,6 +140,34 @@ class BackupTest {
     // ---------------- Backward compatibility ----------------
 
     @Test
+    fun `legacy FORMAT 2 backups (vault plus images) still import`() {
+        val engine = BouncyCastleCryptoEngine()
+        val salt = ByteArray(16) { 5 }
+        val key = engine.deriveKey("pw".toCharArray(), salt, fast)
+        val bundle = ByteArrayOutputStream()
+        DataOutputStream(bundle).use { o ->
+            val vb = VaultSerialization.encode(vault)
+            o.writeInt(vb.size); o.write(vb)
+            o.writeInt(1)
+            o.writeUTF("img-x")
+            val data = byteArrayOf(9, 8, 7)
+            o.writeInt(data.size); o.write(data)
+        }
+        val blob = engine.aeadEncrypt(key, bundle.toByteArray(), "passlock.backup.v1".toByteArray())
+        val bos = ByteArrayOutputStream()
+        DataOutputStream(bos).use { o ->
+            o.writeInt(0x504C4B42); o.writeInt(2)
+            o.writeInt(salt.size); o.write(salt)
+            o.writeInt(fast.memoryKib); o.writeInt(fast.iterations); o.writeInt(fast.parallelism)
+            o.writeInt(blob.size); o.write(blob)
+        }
+        val restored = Backup.import(bos.toByteArray(), "pw".toCharArray())
+        assertEquals(vault, restored?.vault)
+        assertArrayEquals(byteArrayOf(9, 8, 7), restored?.images?.get("img-x"))
+        assertFalse(Backup.peekNeedsKit(bos.toByteArray()))
+    }
+
+    @Test
     fun `legacy FORMAT 1 backups still import`() {
         val engine = BouncyCastleCryptoEngine()
         val salt = ByteArray(16) { 7 }
