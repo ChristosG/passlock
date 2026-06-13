@@ -72,6 +72,12 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var autoWipeEnabled by mutableStateOf(settings.autoWipeEnabled)
         private set
+    var fontScale by mutableStateOf(settings.fontScale)
+        private set
+    var requirePasswordColdStart by mutableStateOf(settings.requirePasswordColdStart)
+        private set
+
+    private var passwordUnlockedThisProcess = false
 
     var ui by mutableStateOf<VaultUiState>(if (store.exists()) VaultUiState.Locked else VaultUiState.Setup)
         private set
@@ -114,6 +120,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
                 opened != null -> {
                     settings.failedAttempts = 0
                     settings.lockoutUntilMs = 0
+                    passwordUnlockedThisProcess = true
                     unlockInto(opened.dek, opened.vault)
                 }
                 creating -> error = "Couldn't create vault"
@@ -207,6 +214,18 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
     fun chooseTheme(mode: String) { settings.themeMode = mode; themeMode = mode }
     fun chooseAutoWipe(enabled: Boolean) { settings.autoWipeEnabled = enabled; autoWipeEnabled = enabled }
+    fun chooseFontScale(scale: Float) { settings.fontScale = scale; fontScale = scale }
+    fun chooseRequirePassword(enabled: Boolean) { settings.requirePasswordColdStart = enabled; requirePasswordColdStart = enabled }
+
+    fun disableBiometric() {
+        store.disableBiometric()
+        keystore.deleteBiometricKey()
+        biometricEnrolled = false
+    }
+
+    /** Whether to offer biometric unlock now (respects the password-at-cold-start policy). */
+    fun biometricUnlockOffered(): Boolean =
+        biometricCapable && biometricEnrolled && (!requirePasswordColdStart || passwordUnlockedThisProcess)
 
     // ---------------- Encrypted backup ----------------
 
@@ -253,6 +272,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
         keystore.deleteBiometricKey()
         biometricEnrolled = false
+        passwordUnlockedThisProcess = true
         unlockInto(opened.dek, imported)
         return true
     }

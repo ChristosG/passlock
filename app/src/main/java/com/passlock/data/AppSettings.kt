@@ -27,6 +27,16 @@ class AppSettings(context: Context) {
         get() = prefs.getLong(KEY_LOCKOUT, 0L)
         set(value) = prefs.edit().putLong(KEY_LOCKOUT, value).apply()
 
+    /** Global UI text scale (1.0 = normal). */
+    var fontScale: Float
+        get() = prefs.getFloat(KEY_FONT, 1.0f)
+        set(value) = prefs.edit().putFloat(KEY_FONT, value).apply()
+
+    /** When true, biometric unlock is only offered after a password unlock in the same session. */
+    var requirePasswordColdStart: Boolean
+        get() = prefs.getBoolean(KEY_PW_COLD, false)
+        set(value) = prefs.edit().putBoolean(KEY_PW_COLD, value).apply()
+
     companion object {
         const val THEME_SYSTEM = "system"
         const val THEME_DARK = "dark"
@@ -37,5 +47,7 @@ class AppSettings(context: Context) {
         private const val KEY_AUTOWIPE = "autoWipe"
         private const val KEY_FAILED = "failed"
         private const val KEY_LOCKOUT = "lockoutUntil"
+        private const val KEY_FONT = "fontScale"
+        private const val KEY_PW_COLD = "pwColdStart"
     }
 }

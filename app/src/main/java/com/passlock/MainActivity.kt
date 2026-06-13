@@ -3,6 +3,9 @@ package com.passlock
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.passlock.ui.PassLockRoot
@@ -22,7 +25,10 @@ class MainActivity : FragmentActivity() {
         setContent {
             val vm: VaultViewModel = viewModel()
             PassLockTheme(vm.themeMode) {
-                PassLockRoot(vm)
+                val base = LocalDensity.current
+                CompositionLocalProvider(LocalDensity provides Density(base.density, vm.fontScale)) {
+                    PassLockRoot(vm)
+                }
             }
         }
     }

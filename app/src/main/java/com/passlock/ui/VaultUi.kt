@@ -33,6 +33,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -476,6 +477,7 @@ private fun FieldEditCard(
     onGenerate: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    var reveal by remember { mutableStateOf(false) }
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
@@ -490,10 +492,15 @@ private fun FieldEditCard(
                 onValueChange = { field.value = it },
                 label = { Text(if (field.type == FieldType.TOTP_SEED) "Secret / otpauth URI" else "Value") },
                 singleLine = field.type != FieldType.TOTP_SEED,
-                visualTransformation = if (field.isSecret) PasswordVisualTransformation() else VisualTransformation.None,
+                visualTransformation = if (field.isSecret && !reveal) PasswordVisualTransformation() else VisualTransformation.None,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = if (field.type == FieldType.PIN || field.type == FieldType.NUMBER) KeyboardType.Number else KeyboardType.Text,
                 ),
+                trailingIcon = if (field.isSecret) {
+                    { Text(if (reveal) "🙈" else "👁", modifier = Modifier.clickable { reveal = !reveal }.padding(12.dp)) }
+                } else {
+                    null
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -550,7 +557,11 @@ private fun BiometricEnrollBanner(onEnable: () -> Unit) {
 }
 
 @Composable
-fun SettingsScreen(vm: VaultViewModel) {
+fun SettingsScreen(
+    vm: VaultViewModel,
+    onEnableBiometric: (() -> Unit)? = null,
+    onDisableBiometric: () -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showExport by remember { mutableStateOf(false) }
@@ -631,6 +642,30 @@ fun SettingsScreen(vm: VaultViewModel) {
             }
 
             Spacer(Modifier.height(8.dp))
+            Text("Unlock", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            when {
+                !vm.biometricCapable -> Text("No biometrics enrolled on this device.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                vm.biometricEnrolled -> TextButton(onClick = onDisableBiometric) { Text("Disable biometric unlock") }
+                onEnableBiometric != null -> Button(onClick = onEnableBiometric, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Enable biometric unlock") }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = vm.requirePasswordColdStart, onCheckedChange = { vm.chooseRequirePassword(it) })
+                Column(Modifier.weight(1f)) {
+                    Text("Require master password at cold start", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                    Text("Biometrics only after a password unlock in the same session.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text("Text size — ${(vm.fontScale * 100).toInt()}%", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            Slider(
+                value = vm.fontScale,
+                onValueChange = { vm.chooseFontScale(it) },
+                valueRange = 0.85f..1.4f,
+                steps = 10,
+            )
+
+            Spacer(Modifier.height(8.dp))
             Text("Security", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
             Text(
                 "• Offline — no network permission\n" +
@@ -673,21 +708,17 @@ private fun ExportPassphraseDialog(onDismiss: () -> Unit, onConfirm: (String) ->
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
+                PasswordField(
                     value = pass,
                     onValueChange = { pass = it },
-                    label = { Text("Recovery passphrase (8+)") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    label = "Recovery passphrase (8+)",
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
+                PasswordField(
                     value = confirm,
                     onValueChange = { confirm = it },
-                    label = { Text("Confirm") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    label = "Confirm",
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

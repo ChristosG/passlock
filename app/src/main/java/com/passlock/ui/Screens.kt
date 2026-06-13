@@ -3,6 +3,7 @@
 package com.passlock.ui
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
@@ -96,6 +97,11 @@ fun PassLockRoot(vm: VaultViewModel) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    // In-app back: navigate to the list instead of closing the app.
+    BackHandler(enabled = vm.ui is VaultUiState.Unlocked && vm.screen != Screen.List) {
+        vm.back()
+    }
+
     val context = LocalContext.current
     val activity = context as? FragmentActivity
     val scope = rememberCoroutineScope()
@@ -126,14 +132,18 @@ fun PassLockRoot(vm: VaultViewModel) {
             is Screen.List -> VaultListScreen(vm, if (vm.biometricCapable && !vm.biometricEnrolled) ::triggerBiometricEnroll else null)
             is Screen.Detail -> ItemDetailScreen(vm, sc.itemId)
             is Screen.Editor -> ItemEditorScreen(vm, sc.itemId)
-            is Screen.Settings -> SettingsScreen(vm)
+            is Screen.Settings -> SettingsScreen(
+                vm = vm,
+                onEnableBiometric = if (vm.biometricCapable && !vm.biometricEnrolled) ::triggerBiometricEnroll else null,
+                onDisableBiometric = vm::disableBiometric,
+            )
         }
         else -> AuthScreen(
             isSetup = state is VaultUiState.Setup,
             busy = vm.busy,
             error = vm.error,
             onSubmit = vm::submitAuth,
-            showBiometric = state is VaultUiState.Locked && vm.biometricCapable && vm.biometricEnrolled,
+            showBiometric = state is VaultUiState.Locked && vm.biometricUnlockOffered(),
             onBiometric = ::triggerBiometricUnlock,
             onRestore = { openDoc.launch(arrayOf("*/*")) },
             rooted = vm.rooted,
@@ -169,21 +179,17 @@ private fun RestoreDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> 
             Column {
                 Text("This replaces any vault on this device.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
+                PasswordField(
                     value = recovery,
                     onValueChange = { recovery = it },
-                    label = { Text("Recovery passphrase") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    label = "Recovery passphrase",
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
-                OutlinedTextField(
+                PasswordField(
                     value = master,
                     onValueChange = { master = it },
-                    label = { Text("New master password (8+)") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
+                    label = "New master password (8+)",
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -245,26 +251,20 @@ fun AuthScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.height(28.dp))
-            OutlinedTextField(
+            PasswordField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("Master password") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                label = "Master password",
                 isError = tooShort,
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             )
             if (isSetup) {
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                PasswordField(
                     value = confirm,
                     onValueChange = { confirm = it },
-                    label = { Text("Confirm password") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    label = "Confirm password",
                     isError = mismatch,
                     enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
