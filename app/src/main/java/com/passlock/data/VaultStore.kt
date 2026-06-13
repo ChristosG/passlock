@@ -9,22 +9,23 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
 import java.security.SecureRandom
+import javax.crypto.Cipher
 
 /** A successfully-opened vault: the in-memory DEK plus the decrypted contents. */
 class Opened(val dek: ByteArray, val vault: Vault)
 
 /**
- * Encrypted vault persistence. The vault file holds:
+ * Encrypted vault persistence. The main file holds:
  *   magic | format | salt | argon2 params | outer(inner(DEK)) | AEAD(vault) under the DEK
  *
- * where inner = AEAD under an Argon2id key from the master password, and outer =
- * the hardware ([OuterWrap]) layer. A wrong password fails the inner AEAD; a missing
- * hardware key fails the outer layer — so unlocking is gated on real cryptographic
- * verification, never a UI flag.
+ * where inner = AEAD under an Argon2id key from the master password and outer = the
+ * hardware ([OuterWrap]) layer. A separate "bio.plk" file holds the DEK wrapped by a
+ * biometric-gated Keystore key for quick re-unlock.
  */
 class VaultStore(filesDir: File, private val outerWrap: OuterWrap = IdentityOuterWrap) {
     private val engine = BouncyCastleCryptoEngine()
     private val file = File(filesDir, "vault.plk")
+    private val bioFile = File(filesDir, "bio.plk")
     private val rnd = SecureRandom()
     private val vaultAad = "passlock.vault.v1".toByteArray()
 
@@ -54,6 +55,63 @@ class VaultStore(filesDir: File, private val outerWrap: OuterWrap = IdentityOute
         } catch (e: Exception) {
             return null
         }
+        return openWithDek(dek, raw)
+    }
+
+    /** Re-encrypts the vault body with the in-session DEK; salt + wrapped-DEK are unchanged. */
+    fun save(dek: ByteArray, vault: Vault) {
+        val raw = readRaw()
+        writeRaw(raw.salt, raw.params, raw.wrapped, engine.aeadEncrypt(dek, VaultSerialization.encode(vault), vaultAad))
+    }
+
+    // ---------------- Biometric quick-unlock ----------------
+
+    fun hasBiometric(): Boolean = bioFile.exists()
+
+    fun disableBiometric() {
+        bioFile.delete()
+    }
+
+    /** Persists the DEK encrypted under the (already biometric-authorized) cipher. */
+    fun enableBiometric(dek: ByteArray, authorizedEncryptCipher: Cipher) {
+        val iv = authorizedEncryptCipher.iv
+        val ct = authorizedEncryptCipher.doFinal(dek)
+        val tmp = File(bioFile.parentFile, bioFile.name + ".tmp")
+        DataOutputStream(tmp.outputStream().buffered()).use { o ->
+            o.writeInt(iv.size); o.write(iv)
+            o.writeInt(ct.size); o.write(ct)
+        }
+        if (!tmp.renameTo(bioFile)) {
+            tmp.copyTo(bioFile, overwrite = true)
+            tmp.delete()
+        }
+    }
+
+    /** The IV needed to build the biometric decrypt cipher. */
+    fun biometricIv(): ByteArray? {
+        if (!bioFile.exists()) return null
+        DataInputStream(bioFile.inputStream().buffered()).use { i ->
+            return ByteArray(i.readInt()).also { i.readFully(it) }
+        }
+    }
+
+    /** Recovers the DEK via the authorized biometric cipher and opens the vault. */
+    fun unlockWithBiometric(authorizedDecryptCipher: Cipher): Opened? {
+        if (!bioFile.exists()) return null
+        val ct: ByteArray
+        DataInputStream(bioFile.inputStream().buffered()).use { i ->
+            val ivLen = i.readInt(); i.skipBytes(ivLen) // IV already used to init the cipher
+            ct = ByteArray(i.readInt()).also { i.readFully(it) }
+        }
+        val dek = try {
+            authorizedDecryptCipher.doFinal(ct)
+        } catch (e: Exception) {
+            return null
+        }
+        return openWithDek(dek, readRaw())
+    }
+
+    private fun openWithDek(dek: ByteArray, raw: Raw): Opened? {
         val vaultBytes = try {
             engine.aeadDecrypt(dek, raw.blob, vaultAad)
         } catch (e: Exception) {
@@ -61,12 +119,6 @@ class VaultStore(filesDir: File, private val outerWrap: OuterWrap = IdentityOute
             return null
         }
         return Opened(dek, VaultSerialization.decode(vaultBytes))
-    }
-
-    /** Re-encrypts the vault body with the in-session DEK; salt + wrapped-DEK are unchanged. */
-    fun save(dek: ByteArray, vault: Vault) {
-        val raw = readRaw()
-        writeRaw(raw.salt, raw.params, raw.wrapped, engine.aeadEncrypt(dek, VaultSerialization.encode(vault), vaultAad))
     }
 
     private class Raw(val salt: ByteArray, val params: KdfParams, val wrapped: ByteArray, val blob: ByteArray)

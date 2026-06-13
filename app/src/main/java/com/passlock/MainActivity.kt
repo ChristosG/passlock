@@ -2,13 +2,14 @@ package com.passlock
 
 import android.os.Bundle
 import android.view.WindowManager
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.passlock.ui.PassLockRoot
 import com.passlock.ui.PassLockTheme
 
-class MainActivity : ComponentActivity() {
+// FragmentActivity (not ComponentActivity) is required by androidx BiometricPrompt.
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 

@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
 import android.os.PersistableBundle
+import androidx.biometric.BiometricManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -25,6 +26,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import javax.crypto.Cipher
 
 sealed interface VaultUiState {
     /** No vault file yet — first run, create a master password. */
@@ -38,10 +40,19 @@ sealed interface VaultUiState {
 }
 
 class VaultViewModel(app: Application) : AndroidViewModel(app) {
-    private val store = VaultStore(app.filesDir, KeystoreOuterWrap(KeystoreManager()))
+    private val keystore = KeystoreManager()
+    private val store = VaultStore(app.filesDir, KeystoreOuterWrap(keystore))
 
     /** In-memory data-encryption key; null whenever locked. Zeroized on lock. */
     private var dek: ByteArray? = null
+
+    /** Whether the device has a usable strong biometric enrolled. */
+    val biometricCapable: Boolean =
+        BiometricManager.from(app).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
+            BiometricManager.BIOMETRIC_SUCCESS
+
+    var biometricEnrolled by mutableStateOf(store.hasBiometric())
+        private set
 
     var ui by mutableStateOf<VaultUiState>(if (store.exists()) VaultUiState.Locked else VaultUiState.Setup)
         private set
@@ -82,6 +93,58 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         error = null
         if (ui is VaultUiState.Unlocked) ui = VaultUiState.Locked
     }
+
+    // ---------------- Biometric ----------------
+
+    /** Cipher to enroll biometric (encrypts the live DEK after auth). Null on failure. */
+    fun encryptCipherForEnroll(): Cipher? =
+        if (dek == null) null else try { keystore.biometricEncryptCipher() } catch (e: Exception) { null }
+
+    /** Cipher to unlock via biometric. Null if unavailable or the key was invalidated. */
+    fun decryptCipherForUnlock(): Cipher? {
+        val iv = store.biometricIv() ?: return null
+        return try {
+            keystore.biometricDecryptCipher(iv)
+        } catch (e: Exception) {
+            // e.g. KeyPermanentlyInvalidatedException after new biometric enrollment.
+            store.disableBiometric()
+            keystore.deleteBiometricKey()
+            biometricEnrolled = false
+            null
+        }
+    }
+
+    fun confirmEnroll(authorizedCipher: Cipher) {
+        val key = dek ?: return
+        try {
+            store.enableBiometric(key, authorizedCipher)
+            biometricEnrolled = true
+        } catch (e: Exception) {
+            error = "Couldn't enable biometric unlock"
+        }
+    }
+
+    fun confirmBiometricUnlock(authorizedCipher: Cipher) {
+        busy = true
+        viewModelScope.launch {
+            val opened = withContext(Dispatchers.Default) {
+                try {
+                    store.unlockWithBiometric(authorizedCipher)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            busy = false
+            if (opened == null) {
+                error = "Biometric unlock failed — use your password"
+            } else {
+                dek = opened.dek
+                ui = VaultUiState.Unlocked(opened.vault)
+            }
+        }
+    }
+
+    // ---------------- Items / clipboard ----------------
 
     fun addItem(title: String, value: String) {
         val key = dek ?: return

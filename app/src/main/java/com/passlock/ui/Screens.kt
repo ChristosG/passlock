@@ -2,6 +2,8 @@
 
 package com.passlock.ui
 
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -40,11 +43,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -52,6 +58,39 @@ import com.passlock.VaultUiState
 import com.passlock.VaultViewModel
 import com.passlock.domain.Item
 import com.passlock.domain.Vault
+import javax.crypto.Cipher
+
+/** Shows a strong-biometric prompt bound to [cipher]; [onSuccess] gets the authorized cipher. */
+private fun authenticateBiometric(
+    activity: FragmentActivity,
+    cipher: Cipher,
+    title: String,
+    subtitle: String,
+    onSuccess: (Cipher) -> Unit,
+    onError: (String) -> Unit,
+) {
+    val prompt = BiometricPrompt(
+        activity,
+        ContextCompat.getMainExecutor(activity),
+        object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                val authorized = result.cryptoObject?.cipher
+                if (authorized != null) onSuccess(authorized) else onError("No cipher returned")
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                onError(errString.toString())
+            }
+        },
+    )
+    val info = BiometricPrompt.PromptInfo.Builder()
+        .setTitle(title)
+        .setSubtitle(subtitle)
+        .setNegativeButtonText("Use password")
+        .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        .build()
+    prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
+}
 
 @Composable
 fun PassLockRoot(vm: VaultViewModel) {
@@ -65,24 +104,57 @@ fun PassLockRoot(vm: VaultViewModel) {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    val activity = LocalContext.current as? FragmentActivity
+
+    fun triggerBiometricUnlock() {
+        val act = activity ?: return
+        val cipher = vm.decryptCipherForUnlock() ?: return
+        authenticateBiometric(
+            act, cipher, "Unlock PassLock", "Use your fingerprint or face",
+            onSuccess = { vm.confirmBiometricUnlock(it) },
+            onError = { },
+        )
+    }
+
+    fun triggerBiometricEnroll() {
+        val act = activity ?: return
+        val cipher = vm.encryptCipherForEnroll() ?: return
+        authenticateBiometric(
+            act, cipher, "Enable biometric unlock", "Confirm to link your biometrics",
+            onSuccess = { vm.confirmEnroll(it) },
+            onError = { },
+        )
+    }
+
     when (val state = vm.ui) {
         is VaultUiState.Unlocked -> VaultScreen(
             vault = state.vault,
             onLock = vm::lock,
             onAdd = vm::addItem,
             onCopy = vm::copy,
+            showEnableBiometric = vm.biometricCapable && !vm.biometricEnrolled,
+            onEnableBiometric = ::triggerBiometricEnroll,
         )
         else -> AuthScreen(
             isSetup = state is VaultUiState.Setup,
             busy = vm.busy,
             error = vm.error,
             onSubmit = vm::submitAuth,
+            showBiometric = state is VaultUiState.Locked && vm.biometricCapable && vm.biometricEnrolled,
+            onBiometric = ::triggerBiometricUnlock,
         )
     }
 }
 
 @Composable
-fun AuthScreen(isSetup: Boolean, busy: Boolean, error: String?, onSubmit: (String) -> Unit) {
+fun AuthScreen(
+    isSetup: Boolean,
+    busy: Boolean,
+    error: String?,
+    onSubmit: (String) -> Unit,
+    showBiometric: Boolean = false,
+    onBiometric: () -> Unit = {},
+) {
     var password by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
 
@@ -162,6 +234,14 @@ fun AuthScreen(isSetup: Boolean, busy: Boolean, error: String?, onSubmit: (Strin
                     Text(if (isSetup) "Create vault" else "Unlock", fontWeight = FontWeight.Bold)
                 }
             }
+            if (showBiometric) {
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = onBiometric,
+                    enabled = !busy,
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                ) { Text("Unlock with biometrics") }
+            }
             Spacer(Modifier.height(24.dp))
             Text(
                 "Offline · encrypted · no network",
@@ -178,6 +258,8 @@ fun VaultScreen(
     onLock: () -> Unit,
     onAdd: (String, String) -> Unit,
     onCopy: (String) -> Unit,
+    showEnableBiometric: Boolean = false,
+    onEnableBiometric: () -> Unit = {},
 ) {
     var showAdd by remember { mutableStateOf(false) }
     val expanded = remember { mutableStateMapOf<String, Boolean>() }
@@ -204,38 +286,43 @@ fun VaultScreen(
             ) { Text("+", fontSize = 26.sp) }
         },
     ) { padding ->
-        if (vault.items.isEmpty()) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Text("🗄️", fontSize = 48.sp)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "No secrets yet",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = MaterialTheme.colorScheme.onBackground,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text("Tap + to add your first secret", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (showEnableBiometric) {
+                BiometricEnrollBanner(onEnable = onEnableBiometric)
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(vault.items, key = { it.id }) { item ->
-                    ItemCard(
-                        item = item,
-                        isExpanded = expanded[item.id] == true,
-                        onToggle = { expanded[item.id] = !(expanded[item.id] ?: false) },
-                        revealed = revealed,
-                        onReveal = { fid -> revealed[fid] = !(revealed[fid] ?: false) },
-                        onCopy = onCopy,
+            if (vault.items.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Text("🗄️", fontSize = 48.sp)
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "No secrets yet",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onBackground,
                     )
+                    Spacer(Modifier.height(6.dp))
+                    Text("Tap + to add your first secret", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(vault.items, key = { it.id }) { item ->
+                        ItemCard(
+                            item = item,
+                            isExpanded = expanded[item.id] == true,
+                            onToggle = { expanded[item.id] = !(expanded[item.id] ?: false) },
+                            revealed = revealed,
+                            onReveal = { fid -> revealed[fid] = !(revealed[fid] ?: false) },
+                            onCopy = onCopy,
+                        )
+                    }
                 }
             }
         }
@@ -249,6 +336,29 @@ fun VaultScreen(
                 showAdd = false
             },
         )
+    }
+}
+
+@Composable
+private fun BiometricEnrollBanner(onEnable: () -> Unit) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth().padding(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Faster unlock", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    "Use your fingerprint or face next time",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = onEnable) { Text("Enable") }
+        }
     }
 }
 
