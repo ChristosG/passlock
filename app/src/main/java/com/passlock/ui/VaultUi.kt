@@ -1,8 +1,10 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 
 package com.passlock.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,6 +20,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -123,12 +128,18 @@ private fun primaryField(item: Item): Field? =
 @Composable
 fun VaultListScreen(vm: VaultViewModel, onEnableBiometric: (() -> Unit)?) {
     val items = vm.visibleItems()
+    val scope = rememberCoroutineScope()
+    var fabMenu by remember { mutableStateOf(false) }
+    val pickGalleryImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch { vm.addGalleryImage(uri) }
+    }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("🔐 Vault", fontWeight = FontWeight.Bold) },
                 actions = {
+                    IconAction("🖼", "Gallery") { vm.openGallery() }
                     IconAction("⚙", "Settings") { vm.openSettings() }
                     IconAction("🔒", "Lock") { vm.lock() }
                 },
@@ -140,11 +151,17 @@ fun VaultListScreen(vm: VaultViewModel, onEnableBiometric: (() -> Unit)?) {
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { vm.openEditor(null) },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) { Text("+", fontSize = 26.sp) }
+            Box {
+                FloatingActionButton(
+                    onClick = { fabMenu = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) { Text("+", fontSize = 26.sp) }
+                DropdownMenu(expanded = fabMenu, onDismissRequest = { fabMenu = false }) {
+                    DropdownMenuItem(text = { Text("🗂  New secret") }, onClick = { fabMenu = false; vm.openEditor(null) })
+                    DropdownMenuItem(text = { Text("🖼  Add photo") }, onClick = { fabMenu = false; vm.expectActivityResult(); pickGalleryImage.launch("image/*") })
+                }
+            }
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -212,10 +229,15 @@ private fun FilterRow(vm: VaultViewModel) {
 @Composable
 private fun ItemRow(vm: VaultViewModel, item: Item) {
     val primary = primaryField(item)
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth().clickable { vm.openDetail(item.id) },
-    ) {
+    var menu by remember { mutableStateOf(false) }
+    Box {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.fillMaxWidth().combinedClickable(
+                onClick = { vm.openDetail(item.id) },
+                onLongClick = { menu = true },
+            ),
+        ) {
         Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(templateIcon(item.template), fontSize = 22.sp)
             Spacer(Modifier.width(12.dp))
@@ -230,8 +252,80 @@ private fun ItemRow(vm: VaultViewModel, item: Item) {
                     vm.copy(v)
                 }
             }
+            }
+        }
+        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text("Edit") }, onClick = { menu = false; vm.openEditor(item.id) })
+            DropdownMenuItem(
+                text = { Text(if (item.favorite) "Unfavorite" else "Favorite") },
+                onClick = { menu = false; vm.toggleFavorite(item.id) },
+            )
+            DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; vm.deleteItem(item.id) })
         }
     }
+}
+
+// ---------------------------------------------------------------- Gallery
+
+@Composable
+fun GalleryScreen(vm: VaultViewModel) {
+    val ids = vm.allImageIds()
+    val scope = rememberCoroutineScope()
+    var viewerStart by remember { mutableStateOf<Int?>(null) }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch { vm.addGalleryImage(uri) }
+    }
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = { Text("Gallery (${ids.size})", fontWeight = FontWeight.Bold) },
+                navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Back") { vm.back() } },
+                actions = { IconAction("➕", "Add photo") { vm.expectActivityResult(); pickImage.launch("image/*") } },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.primary,
+                    actionIconContentColor = MaterialTheme.colorScheme.primary,
+                ),
+            )
+        },
+    ) { padding ->
+        if (ids.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text("🖼", fontSize = 48.sp)
+                Spacer(Modifier.height(12.dp))
+                Text("No photos yet", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onBackground)
+                Spacer(Modifier.height(6.dp))
+                Text("Tap ➕ to add a photo, or attach images to items.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                itemsIndexed(ids) { index, id ->
+                    EncryptedImage(
+                        vm = vm,
+                        id = id,
+                        modifier = Modifier.aspectRatio(1f).combinedClickable(
+                            onClick = { viewerStart = index },
+                            onLongClick = { vm.deleteGalleryImage(id) },
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    viewerStart?.let { start -> ImageViewer(vm, ids, start) { viewerStart = null } }
 }
 
 // ---------------------------------------------------------------- Detail

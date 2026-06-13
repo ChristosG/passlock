@@ -40,6 +40,16 @@ class VaultSearchTest {
     }
 
     @Test
+    fun `matches non-secret field values such as a VAT number`() {
+        val withVat = items + item(
+            "4", "Company", Template.CUSTOM,
+            fields = listOf(Field("v", "VAT", "GB123456789", FieldType.TEXT, isSecret = false)),
+        )
+        assertEquals(listOf("4"), VaultSearch.filter(withVat, SearchQuery(text = "123456")).map { it.id })
+        assertEquals(listOf("4"), VaultSearch.filter(withVat, SearchQuery(text = "vat")).map { it.id })
+    }
+
+    @Test
     fun `empty query returns everything`() {
         assertEquals(listOf("1", "2", "3"), VaultSearch.filter(items, SearchQuery()).map { it.id })
     }

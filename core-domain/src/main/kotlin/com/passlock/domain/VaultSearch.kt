@@ -14,7 +14,9 @@ object VaultSearch {
             val textMatch = needle.isEmpty() ||
                 item.title.lowercase().contains(needle) ||
                 item.tags.any { it.lowercase().contains(needle) } ||
-                item.fields.any { !it.isSecret && it.label.lowercase().contains(needle) }
+                // Match non-secret field labels AND their values (e.g. a VAT number),
+                // but never the values of secret fields.
+                item.fields.any { !it.isSecret && (it.label.lowercase().contains(needle) || it.value.lowercase().contains(needle)) }
             val templateMatch = query.template == null || item.template == query.template
             val favoriteMatch = !query.favoritesOnly || item.favorite
             val tagMatch = query.tag == null || item.tags.contains(query.tag)

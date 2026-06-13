@@ -159,6 +159,7 @@ fun PassLockRoot(vm: VaultViewModel) {
                 onEnableBiometric = if (vm.biometricCapable && !vm.biometricEnrolled) ::triggerBiometricEnroll else null,
                 onDisableBiometric = vm::disableBiometric,
             )
+            is Screen.Gallery -> GalleryScreen(vm)
         }
         else -> AuthScreen(
             isSetup = state is VaultUiState.Setup,

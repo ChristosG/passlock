@@ -56,6 +56,7 @@ sealed interface Screen {
     data class Detail(val itemId: String) : Screen
     data class Editor(val itemId: String?) : Screen
     data object Settings : Screen
+    data object Gallery : Screen
 }
 
 class VaultViewModel(app: Application) : AndroidViewModel(app) {
@@ -258,6 +259,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     fun openDetail(id: String) { screen = Screen.Detail(id) }
     fun openEditor(id: String?) { screen = Screen.Editor(id) }
     fun openSettings() { screen = Screen.Settings }
+    fun openGallery() { screen = Screen.Gallery }
     fun back() { screen = Screen.List }
 
     fun chooseTheme(mode: String) { settings.themeMode = mode; themeMode = mode }
@@ -487,6 +489,30 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteImageBlob(id: String) {
         File(getApplication<Application>().filesDir, "att_$id.plk").delete()
+    }
+
+    /** Every image in the vault: item attachments plus standalone gallery photos. */
+    fun allImageIds(): List<String> {
+        val v = vault ?: return emptyList()
+        return (v.items.flatMap { it.attachments } + v.galleryImages).distinct()
+    }
+
+    suspend fun addGalleryImage(uri: Uri) {
+        val key = dek ?: return
+        val cur = vault ?: return
+        val id = encryptAndStoreImage(uri) ?: return
+        val newVault = cur.copy(galleryImages = cur.galleryImages + id)
+        withContext(Dispatchers.Default) { activeStore.save(key, newVault) }
+        ui = VaultUiState.Unlocked(newVault)
+    }
+
+    /** Deletes a standalone gallery photo. Item-attached photos are managed in the item editor. */
+    fun deleteGalleryImage(id: String) {
+        val key = dek ?: return
+        val cur = vault ?: return
+        if (id !in cur.galleryImages) return
+        deleteImageBlob(id)
+        persist(key, cur.copy(galleryImages = cur.galleryImages - id)) {}
     }
 
     private fun processImage(bytes: ByteArray): ByteArray {

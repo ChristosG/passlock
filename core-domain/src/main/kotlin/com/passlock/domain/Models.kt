@@ -31,4 +31,6 @@ data class Item(
 
 data class Vault(
     val items: List<Item> = emptyList(),
+    /** Standalone gallery images (encrypted blob ids) not attached to any item. */
+    val galleryImages: List<String> = emptyList(),
 )
