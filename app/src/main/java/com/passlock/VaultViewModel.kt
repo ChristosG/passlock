@@ -12,6 +12,7 @@ import android.content.Context
 import android.provider.MediaStore
 import android.os.Build
 import android.os.PersistableBundle
+import android.os.SystemClock
 import androidx.biometric.BiometricManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -191,6 +192,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         dek = key
         screen = Screen.List
         query = SearchQuery()
+        lastInteractionAt = SystemClock.elapsedRealtime()
         ui = VaultUiState.Unlocked(v)
     }
 
@@ -206,6 +208,27 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
     private var expectingResult = false
     private var pickerFlowActive = false
+    private var lastInteractionAt = SystemClock.elapsedRealtime()
+
+    init {
+        // Idle auto-lock: after 5 minutes with no interaction, lock and require auth again.
+        // Polled every 30s, so it fires within ~30s of the 5-minute mark.
+        viewModelScope.launch {
+            while (true) {
+                delay(30_000)
+                if (ui is VaultUiState.Unlocked &&
+                    SystemClock.elapsedRealtime() - lastInteractionAt >= 5 * 60_000L
+                ) {
+                    lock()
+                }
+            }
+        }
+    }
+
+    /** Resets the idle timer; called on every screen touch/key event via the Activity. */
+    fun recordInteraction() {
+        lastInteractionAt = SystemClock.elapsedRealtime()
+    }
 
     /** Call right before launching a file/photo picker so it doesn't trip auto-lock. */
     fun expectActivityResult() {

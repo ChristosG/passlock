@@ -106,24 +106,6 @@ internal fun biometricGate(activity: FragmentActivity, onSuccess: () -> Unit) {
 
 @Composable
 fun PassLockRoot(vm: VaultViewModel) {
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_STOP -> if (!vm.consumeExpectedResult()) vm.lock()
-                Lifecycle.Event.ON_START -> vm.clearClipboardIfDue()
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    // In-app back: navigate to the list instead of closing the app.
-    BackHandler(enabled = vm.ui is VaultUiState.Unlocked && vm.screen != Screen.List) {
-        vm.back()
-    }
-
     val context = LocalContext.current
     val activity = context as? FragmentActivity
     val scope = rememberCoroutineScope()
@@ -138,6 +120,36 @@ fun PassLockRoot(vm: VaultViewModel) {
         val act = activity ?: return
         val cipher = vm.encryptCipherForEnroll() ?: return
         authenticateBiometric(act, cipher, "Enable biometric unlock", "Confirm to link your biometrics", { vm.confirmEnroll(it) }, { })
+    }
+
+    // Auto-prompt for biometrics whenever we arrive on the locked login screen — cold start or
+    // returning from background. A freshly added observer is synced to the current lifecycle state,
+    // so this also fires on cold start. Debounced so a device that churns lifecycle while the system
+    // prompt is up can't loop.
+    val lastAutoPrompt = remember { longArrayOf(0L) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> if (!vm.consumeExpectedResult()) vm.lock()
+                Lifecycle.Event.ON_START -> vm.clearClipboardIfDue()
+                Lifecycle.Event.ON_RESUME ->
+                    if (vm.ui is VaultUiState.Locked && vm.biometricUnlockOffered() &&
+                        System.currentTimeMillis() - lastAutoPrompt[0] > 1500
+                    ) {
+                        lastAutoPrompt[0] = System.currentTimeMillis()
+                        triggerBiometricUnlock()
+                    }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // In-app back: navigate to the list instead of closing the app.
+    BackHandler(enabled = vm.ui is VaultUiState.Unlocked && vm.screen != Screen.List) {
+        vm.back()
     }
 
     // Restore-from-backup file picker.

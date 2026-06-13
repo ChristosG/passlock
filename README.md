@@ -11,9 +11,9 @@ A **fully-offline, hardware-backed encrypted vault** for Android — for your mo
 - **No `INTERNET` permission at all** — the app physically cannot phone home. Fully offline.
 - Each vault is sealed with a random 256-bit Data Encryption Key (DEK). The DEK is wrapped by **Argon2id(master password)** *and* by a **non-extractable Android Keystore key (StrongBox / TEE)** — so a copy of the storage file can't be brute-forced offline; it needs the hardware key, which can't leave the secure element.
 - **AEAD:** AES-256-GCM (authenticated — tampering and wrong passwords are rejected, never bypassed). Symmetric-only design → already post-quantum-safe.
-- **Unlock:** master password (Argon2id) or **biometrics** (`BiometricPrompt` bound to a Keystore `CryptoObject`). Optional "require password at cold start."
+- **Unlock:** master password (Argon2id) or **biometrics** (`BiometricPrompt` bound to a Keystore `CryptoObject`) — the biometric prompt appears automatically the moment the lock screen shows. Optional "require password at cold start."
 - **`FLAG_SECURE`:** no screenshots, no screen recording, blank app-switcher thumbnail.
-- **Auto-lock** on every background / screen-off, with in-memory key zeroization.
+- **Auto-lock** on every background / screen-off, and after 5 minutes idle in the foreground, with in-memory key zeroization.
 - **Clipboard** copies auto-clear after 30s and are flagged sensitive.
 - **Brute-force defenses:** escalating lock-out after repeated wrong attempts; optional auto-wipe after 10 failed attempts.
 - **Duress / decoy password:** a second password opens a separate, empty decoy vault under coercion; your real vault stays hidden.

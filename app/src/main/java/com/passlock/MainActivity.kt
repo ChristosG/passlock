@@ -6,13 +6,15 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.activity.viewModels
 import androidx.fragment.app.FragmentActivity
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.passlock.ui.PassLockRoot
 import com.passlock.ui.PassLockTheme
 
 // FragmentActivity (not ComponentActivity) is required by androidx BiometricPrompt.
 class MainActivity : FragmentActivity() {
+    private val vm: VaultViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -23,7 +25,6 @@ class MainActivity : FragmentActivity() {
         )
 
         setContent {
-            val vm: VaultViewModel = viewModel()
             PassLockTheme(vm.themeMode) {
                 val base = LocalDensity.current
                 CompositionLocalProvider(LocalDensity provides Density(base.density, vm.fontScale)) {
@@ -31,5 +32,11 @@ class MainActivity : FragmentActivity() {
                 }
             }
         }
+    }
+
+    // Resets the idle auto-lock timer on every touch/key event while the app is in use.
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        vm.recordInteraction()
     }
 }
