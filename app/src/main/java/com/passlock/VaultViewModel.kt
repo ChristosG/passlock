@@ -16,11 +16,16 @@ import androidx.lifecycle.viewModelScope
 import com.passlock.data.KeystoreManager
 import com.passlock.data.KeystoreOuterWrap
 import com.passlock.data.VaultStore
-import com.passlock.domain.Field
-import com.passlock.domain.FieldType
 import com.passlock.domain.Item
+import com.passlock.domain.PasswordGenerator
+import com.passlock.domain.PasswordPolicy
+import com.passlock.domain.SearchQuery
 import com.passlock.domain.Template
+import com.passlock.domain.Templates
+import com.passlock.domain.Totp
+import com.passlock.domain.TotpSecret
 import com.passlock.domain.Vault
+import com.passlock.domain.VaultSearch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -29,24 +34,25 @@ import java.util.UUID
 import javax.crypto.Cipher
 
 sealed interface VaultUiState {
-    /** No vault file yet — first run, create a master password. */
     data object Setup : VaultUiState
-
-    /** A vault exists but is sealed. */
     data object Locked : VaultUiState
-
-    /** Unlocked: real decrypted contents are present (only reachable with key material). */
     data class Unlocked(val vault: Vault) : VaultUiState
+}
+
+/** In-vault navigation (only meaningful while [VaultUiState.Unlocked]). */
+sealed interface Screen {
+    data object List : Screen
+    data class Detail(val itemId: String) : Screen
+    data class Editor(val itemId: String?) : Screen
 }
 
 class VaultViewModel(app: Application) : AndroidViewModel(app) {
     private val keystore = KeystoreManager()
     private val store = VaultStore(app.filesDir, KeystoreOuterWrap(keystore))
+    private val passwordGen = PasswordGenerator()
 
-    /** In-memory data-encryption key; null whenever locked. Zeroized on lock. */
     private var dek: ByteArray? = null
 
-    /** Whether the device has a usable strong biometric enrolled. */
     val biometricCapable: Boolean =
         BiometricManager.from(app).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
             BiometricManager.BIOMETRIC_SUCCESS
@@ -56,10 +62,18 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
     var ui by mutableStateOf<VaultUiState>(if (store.exists()) VaultUiState.Locked else VaultUiState.Setup)
         private set
+    var screen by mutableStateOf<Screen>(Screen.List)
+        private set
+    var query by mutableStateOf(SearchQuery())
+        private set
     var busy by mutableStateOf(false)
         private set
     var error by mutableStateOf<String?>(null)
         private set
+
+    private val vault: Vault? get() = (ui as? VaultUiState.Unlocked)?.vault
+
+    // ---------------- Auth ----------------
 
     fun submitAuth(password: String) {
         if (busy || password.isEmpty()) return
@@ -72,53 +86,51 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
                 try {
                     if (creating) store.create(pw) else store.unlock(pw)
                 } catch (e: Exception) {
-                    null // any store/keystore error is treated as a failed unlock, never a crash
+                    null
                 } finally {
                     pw.fill(' ')
                 }
             }
             busy = false
-            if (opened == null) {
-                error = "Wrong master password"
-            } else {
-                dek = opened.dek
-                ui = VaultUiState.Unlocked(opened.vault)
-            }
+            if (opened == null) error = "Wrong master password" else unlockInto(opened.dek, opened.vault)
         }
+    }
+
+    private fun unlockInto(key: ByteArray, v: Vault) {
+        dek = key
+        screen = Screen.List
+        query = SearchQuery()
+        ui = VaultUiState.Unlocked(v)
     }
 
     fun lock() {
         dek?.fill(0)
         dek = null
         error = null
-        if (ui is VaultUiState.Unlocked) ui = VaultUiState.Locked
+        if (ui is VaultUiState.Unlocked) {
+            screen = Screen.List
+            ui = VaultUiState.Locked
+        }
     }
 
     // ---------------- Biometric ----------------
 
-    /** Cipher to enroll biometric (encrypts the live DEK after auth). Null on failure. */
     fun encryptCipherForEnroll(): Cipher? =
         if (dek == null) null else try { keystore.biometricEncryptCipher() } catch (e: Exception) { null }
 
-    /** Cipher to unlock via biometric. Null if unavailable or the key was invalidated. */
     fun decryptCipherForUnlock(): Cipher? {
         val iv = store.biometricIv() ?: return null
         return try {
             keystore.biometricDecryptCipher(iv)
         } catch (e: Exception) {
-            // e.g. KeyPermanentlyInvalidatedException after new biometric enrollment.
-            store.disableBiometric()
-            keystore.deleteBiometricKey()
-            biometricEnrolled = false
-            null
+            store.disableBiometric(); keystore.deleteBiometricKey(); biometricEnrolled = false; null
         }
     }
 
     fun confirmEnroll(authorizedCipher: Cipher) {
         val key = dek ?: return
         try {
-            store.enableBiometric(key, authorizedCipher)
-            biometricEnrolled = true
+            store.enableBiometric(key, authorizedCipher); biometricEnrolled = true
         } catch (e: Exception) {
             error = "Couldn't enable biometric unlock"
         }
@@ -128,44 +140,90 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         busy = true
         viewModelScope.launch {
             val opened = withContext(Dispatchers.Default) {
-                try {
-                    store.unlockWithBiometric(authorizedCipher)
-                } catch (e: Exception) {
-                    null
-                }
+                try { store.unlockWithBiometric(authorizedCipher) } catch (e: Exception) { null }
             }
             busy = false
-            if (opened == null) {
-                error = "Biometric unlock failed — use your password"
-            } else {
-                dek = opened.dek
-                ui = VaultUiState.Unlocked(opened.vault)
-            }
+            if (opened == null) error = "Biometric unlock failed — use your password"
+            else unlockInto(opened.dek, opened.vault)
         }
     }
 
-    // ---------------- Items / clipboard ----------------
+    // ---------------- Navigation & search ----------------
 
-    fun addItem(title: String, value: String) {
-        val key = dek ?: return
-        val current = (ui as? VaultUiState.Unlocked)?.vault ?: return
-        val fieldId = UUID.randomUUID().toString()
+    fun openList() { screen = Screen.List }
+    fun openDetail(id: String) { screen = Screen.Detail(id) }
+    fun openEditor(id: String?) { screen = Screen.Editor(id) }
+    fun back() { screen = Screen.List }
+
+    fun setSearchText(text: String) { query = query.copy(text = text) }
+    fun setTemplateFilter(template: Template?) { query = query.copy(template = template, favoritesOnly = false) }
+    fun showFavoritesOnly() { query = query.copy(favoritesOnly = true, template = null) }
+    fun clearFilters() { query = SearchQuery(text = query.text) }
+
+    fun visibleItems(): List<Item> {
+        val v = vault ?: return emptyList()
+        return VaultSearch.filter(v.items, query)
+            .sortedWith(compareByDescending<Item> { it.favorite }.thenByDescending { it.updatedAt })
+    }
+
+    fun itemById(id: String): Item? = vault?.items?.firstOrNull { it.id == id }
+
+    // ---------------- CRUD ----------------
+
+    fun blankItem(template: Template): Item {
         val now = System.currentTimeMillis()
-        val item = Item(
+        val fields = Templates.defaultFields(template) { UUID.randomUUID().toString() }
+        return Item(
             id = UUID.randomUUID().toString(),
-            title = title.ifBlank { "Untitled" },
-            template = Template.CUSTOM,
-            fields = listOf(Field(fieldId, "Value", value, FieldType.PASSWORD, isSecret = true)),
-            primaryFieldId = fieldId,
+            title = "",
+            template = template,
+            fields = fields,
+            primaryFieldId = (fields.firstOrNull { it.isSecret } ?: fields.firstOrNull())?.id,
             createdAt = now,
             updatedAt = now,
         )
-        val newVault = current.copy(items = current.items + item)
+    }
+
+    fun saveItem(item: Item) {
+        val key = dek ?: return
+        val cur = vault ?: return
+        val now = System.currentTimeMillis()
+        val idx = cur.items.indexOfFirst { it.id == item.id }
+        val finalItem = item.copy(
+            updatedAt = now,
+            createdAt = if (idx >= 0) cur.items[idx].createdAt else now,
+        )
+        val items = if (idx >= 0) cur.items.toMutableList().also { it[idx] = finalItem } else cur.items + finalItem
+        persist(key, cur.copy(items = items)) { openDetail(finalItem.id) }
+    }
+
+    fun deleteItem(id: String) {
+        val key = dek ?: return
+        val cur = vault ?: return
+        persist(key, cur.copy(items = cur.items.filterNot { it.id == id })) { openList() }
+    }
+
+    fun toggleFavorite(id: String) {
+        val key = dek ?: return
+        val cur = vault ?: return
+        val items = cur.items.map { if (it.id == id) it.copy(favorite = !it.favorite) else it }
+        persist(key, cur.copy(items = items)) {}
+    }
+
+    private fun persist(key: ByteArray, newVault: Vault, onDone: () -> Unit) {
         viewModelScope.launch {
             withContext(Dispatchers.Default) { store.save(key, newVault) }
             ui = VaultUiState.Unlocked(newVault)
+            onDone()
         }
     }
+
+    // ---------------- Helpers ----------------
+
+    fun generatePassword(policy: PasswordPolicy = PasswordPolicy()): String = passwordGen.generate(policy)
+
+    fun totpCode(value: String, epochSec: Long = System.currentTimeMillis() / 1000): String? =
+        TotpSecret.parse(value)?.let { runCatching { Totp.generate(it, epochSec) }.getOrNull() }
 
     fun copy(value: String) {
         val ctx = getApplication<Application>()
@@ -177,7 +235,6 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         cm.setPrimaryClip(clip)
-        // Auto-clear after 20s so secrets don't linger on the clipboard.
         viewModelScope.launch {
             delay(20_000)
             try {
