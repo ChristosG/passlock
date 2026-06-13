@@ -6,6 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -81,12 +83,12 @@ fun IconAction(
         tooltip = { PlainTooltip { Text(tooltip) } },
         state = rememberTooltipState(),
     ) {
-        Text(
-            text = glyph,
-            color = tint,
-            fontSize = glyphSize,
-            modifier = Modifier.clickable(onClick = onClick).padding(10.dp),
-        )
+        Box(
+            modifier = Modifier.size(44.dp).clickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(text = glyph, color = tint, fontSize = glyphSize)
+        }
     }
 }
 

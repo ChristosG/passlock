@@ -357,9 +357,10 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     fun totpCode(value: String, epochSec: Long = System.currentTimeMillis() / 1000): String? =
         TotpSecret.parse(value)?.let { runCatching { Totp.generate(it, epochSec) }.getOrNull() }
 
+    private var clipboardClearAt = 0L
+
     fun copy(value: String) {
-        val ctx = getApplication<Application>()
-        val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val cm = clipboard()
         val clip = ClipData.newPlainText("PassLock", value)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             clip.description.extras = PersistableBundle().apply {
@@ -367,14 +368,29 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         cm.setPrimaryClip(clip)
+        clipboardClearAt = System.currentTimeMillis() + 30_000
         viewModelScope.launch {
-            delay(20_000)
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) cm.clearPrimaryClip()
-            } catch (_: Exception) {
-            }
+            delay(30_000)
+            clearClipboard()
         }
     }
+
+    /** Clears the clipboard. Works while PassLock is foreground; the OS blocks background clears. */
+    fun clearClipboard() {
+        clipboardClearAt = 0L
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) clipboard().clearPrimaryClip()
+        } catch (_: Throwable) {
+        }
+    }
+
+    /** On returning to PassLock, clear any past-due sensitive copy (covers cross-app pastes). */
+    fun clearClipboardIfDue() {
+        if (clipboardClearAt in 1..System.currentTimeMillis()) clearClipboard()
+    }
+
+    private fun clipboard() =
+        getApplication<Application>().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
     // ---------------- Encrypted image attachments ----------------
 
@@ -390,8 +406,8 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
                 val id = UUID.randomUUID().toString()
                 File(app.filesDir, "att_$id.plk").writeBytes(blob)
                 id
-            } catch (e: Exception) {
-                null
+            } catch (e: Throwable) {
+                null // includes OutOfMemoryError on huge images
             }
         }
     }
@@ -402,7 +418,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 val f = File(getApplication<Application>().filesDir, "att_$id.plk")
                 if (!f.exists()) null else engine.aeadDecrypt(key, f.readBytes(), attAad)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 null
             }
         }
@@ -413,8 +429,15 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun processImage(bytes: ByteArray): ByteArray {
-        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return bytes
         val maxDim = 1600
+        // Decode bounds first, then downsample DURING decode so a 50MP photo never
+        // inflates to a full Bitmap in memory (which would OutOfMemory-crash).
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        var sample = 1
+        while (max(bounds.outWidth, bounds.outHeight) / sample > maxDim * 2) sample *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return bytes
         val largest = max(bmp.width, bmp.height)
         val scaled = if (largest > maxDim) {
             val s = maxDim.toFloat() / largest

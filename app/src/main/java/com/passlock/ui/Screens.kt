@@ -91,7 +91,11 @@ fun PassLockRoot(vm: VaultViewModel) {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) vm.lock()
+            when (event) {
+                Lifecycle.Event.ON_STOP -> vm.lock()
+                Lifecycle.Event.ON_START -> vm.clearClipboardIfDue()
+                else -> {}
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }

@@ -657,7 +657,7 @@ fun SettingsScreen(
         },
     ) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            modifier = Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Encrypted backup", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
