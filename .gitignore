@@ -1,0 +1,17 @@
+# Brainstorming visual-companion scratch (not source)
+.superpowers/
+
+# Session memory buffer
+.remember/
+
+# Android / Gradle (for when implementation starts)
+.gradle/
+build/
+local.properties
+*.keystore
+*.jks
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
