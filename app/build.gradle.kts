@@ -22,8 +22,8 @@ android {
         applicationId = "com.passlock"
         minSdk = 31
         targetSdk = 35
-        versionCode = 7
-        versionName = "0.1.6"
+        versionCode = 8
+        versionName = "0.1.7"
     }
 
     signingConfigs {
@@ -75,6 +75,10 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.biometric)
+    // Force a modern androidx.fragment: biometric 1.1.0 pulls fragment 1.2.5, whose
+    // FragmentActivity crashes the Compose ActivityResult launchers ("lower 16 bits for
+    // requestCode"). 1.8.x integrates correctly with the ActivityResultRegistry.
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
