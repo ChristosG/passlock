@@ -87,6 +87,27 @@ private fun templateLabel(t: Template) = when (t) {
     Template.CUSTOM -> "Custom"
 }
 
+/** Plain-language help for known field labels (shown via the (i) tooltip). */
+private fun fieldHelp(label: String, type: FieldType): String? {
+    if (type == FieldType.TOTP_SEED) {
+        return "Paste the 2FA secret (Base32) or an otpauth:// URI — PassLock shows the rotating code."
+    }
+    return when (label.trim().lowercase()) {
+        "card number" -> "The long number on the front of the card."
+        "expiry" -> "The card's expiry date, e.g. 08/27."
+        "cvv" -> "The 3-digit security code on the back of the card."
+        "pin" -> "Your secret PIN — never share it."
+        "cardholder" -> "The name printed on the card."
+        "username" -> "Your login name or email for this account."
+        "password" -> "Your login password. Tap 🎲 to generate a strong one."
+        "url" -> "The website address for this login."
+        "account" -> "Your bank account number."
+        "iban" -> "International Bank Account Number."
+        "note" -> "Any free-form secure note."
+        else -> null
+    }
+}
+
 private fun primaryField(item: Item): Field? =
     item.fields.firstOrNull { it.id == item.primaryFieldId } ?: item.fields.firstOrNull()
 
@@ -101,8 +122,8 @@ fun VaultListScreen(vm: VaultViewModel, onEnableBiometric: (() -> Unit)?) {
             TopAppBar(
                 title = { Text("🔐 Vault", fontWeight = FontWeight.Bold) },
                 actions = {
-                    TextButton(onClick = vm::openSettings) { Text("⚙") }
-                    TextButton(onClick = vm::lock) { Text("Lock") }
+                    IconAction("⚙", "Settings") { vm.openSettings() }
+                    IconAction("🔒", "Lock") { vm.lock() }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -195,12 +216,12 @@ private fun ItemRow(vm: VaultViewModel, item: Item) {
                 Text(item.title.ifBlank { "Untitled" }, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                 Text(templateLabel(item.template), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            TextButton(onClick = { vm.toggleFavorite(item.id) }) { Text(if (item.favorite) "★" else "☆") }
+            IconAction(if (item.favorite) "★" else "☆", if (item.favorite) "Unfavorite" else "Favorite") { vm.toggleFavorite(item.id) }
             if (primary != null && primary.value.isNotEmpty()) {
-                TextButton(onClick = {
+                IconAction("⧉", "Copy ${primary.label}") {
                     val v = if (primary.type == FieldType.TOTP_SEED) vm.totpCode(primary.value) ?: primary.value else primary.value
                     vm.copy(v)
-                }) { Text("Copy") }
+                }
             }
         }
     }
@@ -232,11 +253,11 @@ fun ItemDetailScreen(vm: VaultViewModel, itemId: String) {
         topBar = {
             TopAppBar(
                 title = { Text(item.title.ifBlank { "Untitled" }, fontWeight = FontWeight.Bold) },
-                navigationIcon = { TextButton(onClick = vm::back) { Text("‹ Back") } },
+                navigationIcon = { IconAction("←", "Back") { vm.back() } },
                 actions = {
-                    TextButton(onClick = { vm.toggleFavorite(item.id) }) { Text(if (item.favorite) "★" else "☆") }
-                    TextButton(onClick = { vm.openEditor(item.id) }) { Text("Edit") }
-                    TextButton(onClick = { confirmDelete = true }) { Text("Delete") }
+                    IconAction(if (item.favorite) "★" else "☆", "Favorite") { vm.toggleFavorite(item.id) }
+                    IconAction("✏", "Edit") { vm.openEditor(item.id) }
+                    IconAction("🗑", "Delete") { confirmDelete = true }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -312,12 +333,12 @@ private fun FieldViewRow(
                 }
             }
             if (field.isSecret && field.type != FieldType.TOTP_SEED) {
-                TextButton(onClick = onReveal) { Text(if (revealed) "Hide" else "Show") }
+                IconAction(if (revealed) "🙈" else "👁", if (revealed) "Hide" else "Show") { onReveal() }
             }
-            TextButton(onClick = {
+            IconAction("⧉", "Copy") {
                 val v = if (field.type == FieldType.TOTP_SEED) totp() ?: "" else field.value
                 if (v.isNotEmpty()) onCopy(v)
-            }) { Text("Copy") }
+            }
         }
     }
 }
@@ -383,8 +404,8 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
         topBar = {
             TopAppBar(
                 title = { Text(if (isNew) "New secret" else "Edit", fontWeight = FontWeight.Bold) },
-                navigationIcon = { TextButton(onClick = vm::back) { Text("Cancel") } },
-                actions = { TextButton(onClick = { save() }) { Text("Save") } },
+                navigationIcon = { IconAction("←", "Cancel") { vm.back() } },
+                actions = { IconAction("✓", "Save") { save() } },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
@@ -485,6 +506,7 @@ private fun FieldEditCard(
                 onValueChange = { field.label = it },
                 label = { Text("Label") },
                 singleLine = true,
+                trailingIcon = fieldHelp(field.label, field.type)?.let { help -> { InfoTip(help) } },
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -589,7 +611,7 @@ fun SettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Settings", fontWeight = FontWeight.Bold) },
-                navigationIcon = { TextButton(onClick = vm::back) { Text("‹ Back") } },
+                navigationIcon = { IconAction("←", "Back") { vm.back() } },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
