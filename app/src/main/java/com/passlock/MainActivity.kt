@@ -4,13 +4,9 @@ import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.passlock.ui.PassLockRoot
 import com.passlock.ui.PassLockTheme
-import com.passlock.ui.UnlockScreen
-import com.passlock.ui.VaultScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,12 +20,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             PassLockTheme {
-                var unlocked by remember { mutableStateOf(false) }
-                if (unlocked) {
-                    VaultScreen(onLock = { unlocked = false })
-                } else {
-                    UnlockScreen(onUnlock = { unlocked = true })
-                }
+                val vm: VaultViewModel = viewModel()
+                PassLockRoot(vm)
             }
         }
     }

@@ -38,6 +38,8 @@ kotlin {
     compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
 }
 
+tasks.withType<Test>().configureEach { useJUnitPlatform() }
+
 dependencies {
     implementation(project(":core-crypto"))
     implementation(project(":core-domain"))
@@ -52,4 +54,7 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
     debugImplementation(libs.compose.ui.tooling)
+
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
 }
