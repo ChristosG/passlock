@@ -86,6 +86,24 @@ internal fun authenticateBiometric(
     prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))
 }
 
+/** A simple biometric identity gate (no CryptoObject) — used to reveal/copy a marked field. */
+internal fun biometricGate(activity: FragmentActivity, onSuccess: () -> Unit) {
+    val prompt = BiometricPrompt(
+        activity,
+        ContextCompat.getMainExecutor(activity),
+        object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess()
+        },
+    )
+    val info = BiometricPrompt.PromptInfo.Builder()
+        .setTitle("Reveal secret")
+        .setSubtitle("Confirm it's you")
+        .setNegativeButtonText("Cancel")
+        .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+        .build()
+    prompt.authenticate(info)
+}
+
 @Composable
 fun PassLockRoot(vm: VaultViewModel) {
     val lifecycleOwner = LocalLifecycleOwner.current

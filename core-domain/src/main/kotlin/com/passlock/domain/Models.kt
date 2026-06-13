@@ -10,6 +10,8 @@ data class Field(
     val value: String,
     val type: FieldType,
     val isSecret: Boolean,
+    /** If true, revealing or copying this field requires a fresh biometric auth. */
+    val requireBiometric: Boolean = false,
 )
 
 data class Item(

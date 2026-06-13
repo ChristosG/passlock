@@ -58,6 +58,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.passlock.VaultViewModel
+import androidx.compose.ui.platform.LocalContext
+import androidx.fragment.app.FragmentActivity
 import com.passlock.data.AppSettings
 import com.passlock.domain.Field
 import com.passlock.domain.FieldType
@@ -242,6 +244,7 @@ fun ItemDetailScreen(vm: VaultViewModel, itemId: String) {
     var confirmDelete by remember { mutableStateOf(false) }
     var viewerStart by remember { mutableStateOf<Int?>(null) }
     val revealed = remember { mutableStateMapOf<String, Boolean>() }
+    val activity = LocalContext.current as? FragmentActivity
 
     // 1-second ticker for live TOTP codes.
     var nowSec by remember { mutableStateOf(System.currentTimeMillis() / 1000) }
@@ -280,10 +283,23 @@ fun ItemDetailScreen(vm: VaultViewModel, itemId: String) {
                 FieldViewRow(
                     field = field,
                     revealed = revealed[field.id] == true,
-                    onReveal = { revealed[field.id] = !(revealed[field.id] ?: false) },
+                    onReveal = {
+                        val currently = revealed[field.id] == true
+                        if (!currently && field.requireBiometric && field.isSecret && activity != null) {
+                            biometricGate(activity) { revealed[field.id] = true }
+                        } else {
+                            revealed[field.id] = !currently
+                        }
+                    },
                     nowSec = nowSec,
                     totp = { vm.totpCode(field.value, nowSec) },
-                    onCopy = { vm.copy(it) },
+                    onCopy = { value ->
+                        if (field.requireBiometric && field.isSecret && activity != null) {
+                            biometricGate(activity) { vm.copy(value) }
+                        } else {
+                            vm.copy(value)
+                        }
+                    },
                 )
             }
             if (item.attachments.isNotEmpty()) {
@@ -373,11 +389,13 @@ private class EditableField(
     value: String,
     isSecret: Boolean,
     type: FieldType,
+    requireBiometric: Boolean = false,
 ) {
     var label by mutableStateOf(label)
     var value by mutableStateOf(value)
     var isSecret by mutableStateOf(isSecret)
     var type by mutableStateOf(type)
+    var requireBiometric by mutableStateOf(requireBiometric)
 }
 
 @Composable
@@ -392,7 +410,7 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
     val fields = remember {
         mutableStateListOf<EditableField>().apply {
             val init = existing?.fields ?: vm.blankItem(template).fields
-            init.forEach { add(EditableField(it.id, it.label, it.value, it.isSecret, it.type)) }
+            init.forEach { add(EditableField(it.id, it.label, it.value, it.isSecret, it.type, it.requireBiometric)) }
         }
     }
     var primaryId by remember { mutableStateOf(existing?.primaryFieldId ?: fields.firstOrNull()?.id) }
@@ -405,12 +423,12 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
     fun applyTemplate(t: Template) {
         template = t
         fields.clear()
-        vm.blankItem(t).fields.forEach { fields.add(EditableField(it.id, it.label, it.value, it.isSecret, it.type)) }
+        vm.blankItem(t).fields.forEach { fields.add(EditableField(it.id, it.label, it.value, it.isSecret, it.type, it.requireBiometric)) }
         primaryId = fields.firstOrNull { it.isSecret }?.id ?: fields.firstOrNull()?.id
     }
 
     fun save() {
-        val built = fields.map { Field(it.id, it.label.ifBlank { "Field" }, it.value, it.type, it.isSecret) }
+        val built = fields.map { Field(it.id, it.label.ifBlank { "Field" }, it.value, it.type, it.isSecret, it.requireBiometric) }
         vm.saveItem(
             Item(
                 id = existing?.id ?: UUID.randomUUID().toString(),
@@ -575,17 +593,25 @@ private fun FieldEditCard(
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 FilterChip(
                     selected = field.isSecret,
                     onClick = { field.isSecret = !field.isSecret },
                     label = { Text("Secret") },
                     leadingIcon = if (field.isSecret) { { Text("✓") } } else null,
-                    colors = FilterChipDefaults.filterChipColors(),
                 )
-                Spacer(Modifier.width(8.dp))
+                if (field.isSecret) {
+                    FilterChip(
+                        selected = field.requireBiometric,
+                        onClick = { field.requireBiometric = !field.requireBiometric },
+                        label = { Text("🔒 Bio") },
+                    )
+                }
                 TypeSelector(field.type) { field.type = it }
-                Spacer(Modifier.weight(1f))
                 if (field.type == FieldType.PASSWORD || field.type == FieldType.PIN) {
                     TextButton(onClick = onGenerate) { Text("🎲") }
                 }

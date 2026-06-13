@@ -10,7 +10,7 @@ import java.io.DataOutputStream
  * Pure JVM so it is unit-testable and shared by the Android app.
  */
 object VaultSerialization {
-    private const val VERSION = 2
+    private const val VERSION = 3
 
     fun encode(vault: Vault): ByteArray {
         val bos = ByteArrayOutputStream()
@@ -35,6 +35,7 @@ object VaultSerialization {
                     out.writeUTF(field.value)
                     out.writeUTF(field.type.name)
                     out.writeBoolean(field.isSecret)
+                    out.writeBoolean(field.requireBiometric)
                 }
                 out.writeInt(item.attachments.size)
                 for (att in item.attachments) out.writeUTF(att)
@@ -64,15 +65,13 @@ object VaultSerialization {
                 val fieldCount = inp.readInt()
                 val fields = ArrayList<Field>(fieldCount)
                 repeat(fieldCount) {
-                    fields.add(
-                        Field(
-                            id = inp.readUTF(),
-                            label = inp.readUTF(),
-                            value = inp.readUTF(),
-                            type = FieldType.valueOf(inp.readUTF()),
-                            isSecret = inp.readBoolean(),
-                        ),
-                    )
+                    val fid = inp.readUTF()
+                    val flabel = inp.readUTF()
+                    val fvalue = inp.readUTF()
+                    val ftype = FieldType.valueOf(inp.readUTF())
+                    val fsecret = inp.readBoolean()
+                    val freqBio = if (version >= 3) inp.readBoolean() else false
+                    fields.add(Field(fid, flabel, fvalue, ftype, fsecret, freqBio))
                 }
                 val attachments = if (version >= 2) {
                     val attCount = inp.readInt()
