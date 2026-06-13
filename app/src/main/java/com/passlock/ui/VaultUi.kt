@@ -56,6 +56,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -836,15 +837,19 @@ fun SettingsScreen(
     var showExport by remember { mutableStateOf(false) }
     var showDuress by remember { mutableStateOf(false) }
     var pendingPass by remember { mutableStateOf<String?>(null) }
+    var pendingKit by remember { mutableStateOf<String?>(null) }
+    var kitToShow by remember { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
 
     val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val pass = pendingPass
+        val kitForExport = pendingKit
         pendingPass = null
+        pendingKit = null
         if (uri != null && pass != null) {
             working = true
             scope.launch {
-                val bytes = vm.exportBytes(pass.toCharArray())
+                val bytes = vm.exportBytes(pass.toCharArray(), kitForExport)
                 val ok = bytes != null && runCatching {
                     context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
                 }.isSuccess
@@ -875,10 +880,23 @@ fun SettingsScreen(
             Text("Encrypted backup", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
             Text(
                 "Export an encrypted .plk file protected by a separate recovery passphrase. " +
-                    "Keep that passphrase safe — without it the backup can't be opened, and there's no recovery.",
+                    "With a Recovery Kit, the file stays safe even against offline GPU cracking — " +
+                    "both the kit and your passphrase are needed to restore.",
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = vm.requireRecoveryKit, onCheckedChange = { vm.chooseRequireRecoveryKit(it) })
+                Column(Modifier.weight(1f)) {
+                    Text("Protect backups with a Recovery Kit", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                    Text(
+                        if (vm.requireRecoveryKit) "On — strongest. You must save the 128-bit kit shown at export."
+                        else "Off — passphrase only. A weak passphrase can be cracked from the file.",
+                        fontSize = 12.sp,
+                        color = if (vm.requireRecoveryKit) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
             Button(
                 onClick = { showExport = true },
                 enabled = !working,
@@ -968,9 +986,28 @@ fun SettingsScreen(
             onConfirm = { pass ->
                 showExport = false
                 pendingPass = pass
+                if (vm.requireRecoveryKit) {
+                    kitToShow = vm.generateRecoveryKit()
+                } else {
+                    pendingKit = null
+                    vm.expectActivityResult()
+                    createDoc.launch("passlock-backup.plk")
+                }
+            },
+        )
+    }
+
+    kitToShow?.let { k ->
+        RecoveryKitDialog(
+            kit = k,
+            onCopy = { vm.copy(k) },
+            onConfirm = {
+                kitToShow = null
+                pendingKit = k
                 vm.expectActivityResult()
                 createDoc.launch("passlock-backup.plk")
             },
+            onDismiss = { kitToShow = null; pendingPass = null },
         )
     }
 
@@ -1043,6 +1080,42 @@ private fun ExportPassphraseDialog(onDismiss: () -> Unit, onConfirm: (String) ->
                     label = "Confirm",
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
+}
+
+@Composable
+private fun RecoveryKitDialog(kit: String, onCopy: () -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    var saved by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onConfirm, enabled = saved) { Text("Continue") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        title = { Text("Save your Recovery Kit") },
+        text = {
+            Column {
+                Text(
+                    "This 128-bit key is required together with your passphrase to open the backup. " +
+                        "Save it somewhere safe and separate. Without it the backup can't be opened — there is no recovery.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    kit,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.height(6.dp))
+                TextButton(onClick = onCopy) { Text("Copy to clipboard") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = saved, onCheckedChange = { saved = it })
+                    Text("I've saved my recovery kit", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                }
             }
         },
         containerColor = MaterialTheme.colorScheme.surface,

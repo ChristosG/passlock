@@ -176,12 +176,13 @@ fun PassLockRoot(vm: VaultViewModel) {
 
     restoreBytes?.let { bytes ->
         RestoreDialog(
+            needsKit = vm.backupNeedsKit(bytes),
             onDismiss = { restoreBytes = null },
-            onConfirm = { recovery, master ->
+            onConfirm = { recovery, kit, master ->
                 restoreBytes = null
                 scope.launch {
-                    val ok = vm.restoreFromBackup(bytes, recovery.toCharArray(), master.toCharArray())
-                    if (!ok) Toast.makeText(context, "Restore failed — wrong passphrase or bad file", Toast.LENGTH_LONG).show()
+                    val ok = vm.restoreFromBackup(bytes, recovery.toCharArray(), kit, master.toCharArray())
+                    if (!ok) Toast.makeText(context, "Restore failed — wrong passphrase or recovery kit", Toast.LENGTH_LONG).show()
                 }
             },
         )
@@ -189,19 +190,35 @@ fun PassLockRoot(vm: VaultViewModel) {
 }
 
 @Composable
-private fun RestoreDialog(onDismiss: () -> Unit, onConfirm: (String, String) -> Unit) {
+private fun RestoreDialog(needsKit: Boolean, onDismiss: () -> Unit, onConfirm: (String, String?, String) -> Unit) {
     var recovery by remember { mutableStateOf("") }
+    var kit by remember { mutableStateOf("") }
     var master by remember { mutableStateOf("") }
-    val canRestore = recovery.isNotEmpty() && master.length >= 8
+    val canRestore = recovery.isNotEmpty() && master.length >= 8 && (!needsKit || kit.isNotBlank())
     AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = { onConfirm(recovery, master) }, enabled = canRestore) { Text("Restore") } },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(recovery, if (needsKit) kit else null, master) },
+                enabled = canRestore,
+            ) { Text("Restore") }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
         title = { Text("Restore backup") },
         text = {
             Column {
                 Text("This replaces any vault on this device.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(10.dp))
+                if (needsKit) {
+                    OutlinedTextField(
+                        value = kit,
+                        onValueChange = { kit = it },
+                        label = { Text("Recovery kit") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
                 PasswordField(
                     value = recovery,
                     onValueChange = { recovery = it },

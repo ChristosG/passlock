@@ -16,15 +16,17 @@ class BouncyCastleCryptoEngine(
      * [salt], and the returned key, and is responsible for zeroizing the passphrase and
      * the returned key when done. This engine does not wipe caller-owned inputs.
      */
-    override fun deriveKey(passphrase: CharArray, salt: ByteArray, params: KdfParams): ByteArray {
-        val argonParams = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
+    override fun deriveKey(passphrase: CharArray, salt: ByteArray, params: KdfParams, secret: ByteArray): ByteArray {
+        val builder = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
             .withVersion(Argon2Parameters.ARGON2_VERSION_13)
             .withIterations(params.iterations)
             .withMemoryAsKB(params.memoryKib)
             .withParallelism(params.parallelism)
             .withSalt(salt)
-            .build()
-        val generator = Argon2BytesGenerator().apply { init(argonParams) }
+        // Only bind the secret when present — keeps the empty-secret path identical to the
+        // original derivation, so vaults sealed before this change still unlock.
+        if (secret.isNotEmpty()) builder.withSecret(secret)
+        val generator = Argon2BytesGenerator().apply { init(builder.build()) }
         val key = ByteArray(KEY_LEN)
         generator.generateBytes(passphrase, key)
         return key

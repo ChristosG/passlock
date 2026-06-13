@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.passlock.crypto.BouncyCastleCryptoEngine
+import com.passlock.crypto.RecoveryKit
 import com.passlock.data.AppSettings
 import com.passlock.data.Backup
 import com.passlock.data.KeystoreManager
@@ -93,6 +94,8 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     var fontScale by mutableStateOf(settings.fontScale)
         private set
     var requirePasswordColdStart by mutableStateOf(settings.requirePasswordColdStart)
+        private set
+    var requireRecoveryKit by mutableStateOf(settings.requireRecoveryKit)
         private set
 
     private var passwordUnlockedThisProcess = false
@@ -268,6 +271,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseAutoWipe(enabled: Boolean) { settings.autoWipeEnabled = enabled; autoWipeEnabled = enabled }
     fun chooseFontScale(scale: Float) { settings.fontScale = scale; fontScale = scale }
     fun chooseRequirePassword(enabled: Boolean) { settings.requirePasswordColdStart = enabled; requirePasswordColdStart = enabled }
+    fun chooseRequireRecoveryKit(enabled: Boolean) { settings.requireRecoveryKit = enabled; requireRecoveryKit = enabled }
 
     fun disableBiometric() {
         store.disableBiometric()
@@ -301,16 +305,27 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------------- Encrypted backup ----------------
 
-    /** Produces an encrypted backup of the current vault under a recovery passphrase. */
-    suspend fun exportBytes(passphrase: CharArray): ByteArray? = withContext(Dispatchers.IO) {
+    /** A fresh 128-bit Recovery Kit, shown once at export and required (with the passphrase) to restore. */
+    fun generateRecoveryKit(): String = RecoveryKit.encode(engine.randomBytes(RecoveryKit.SECRET_BYTES))
+
+    /** Whether a backup file was sealed with a Recovery Kit (so restore must collect one). */
+    fun backupNeedsKit(bytes: ByteArray): Boolean = Backup.peekNeedsKit(bytes)
+
+    /**
+     * Produces an encrypted backup of the current vault under a recovery passphrase, optionally
+     * bound to a [recoveryKit] (128 bits) so the file is brute-force-infeasible offline.
+     */
+    suspend fun exportBytes(passphrase: CharArray, recoveryKit: String?): ByteArray? = withContext(Dispatchers.IO) {
         val v = vault ?: run { passphrase.fill(' '); return@withContext null }
+        val kitBytes = recoveryKit?.let { RecoveryKit.decode(it) }
         try {
             val images = allImageIds().mapNotNull { id -> decryptBlob(id)?.let { id to it } }.toMap()
-            Backup.export(v, images, passphrase)
+            Backup.export(v, images, passphrase, kitBytes)
         } catch (e: Exception) {
             null
         } finally {
             passphrase.fill(' ')
+            kitBytes?.fill(0)
         }
     }
 
@@ -319,14 +334,21 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
      * seals it under a freshly chosen master password (and this device's hardware key).
      * Replaces any existing vault. Returns false if the recovery passphrase is wrong.
      */
-    suspend fun restoreFromBackup(bytes: ByteArray, recoveryPassphrase: CharArray, masterPassword: CharArray): Boolean {
+    suspend fun restoreFromBackup(
+        bytes: ByteArray,
+        recoveryPassphrase: CharArray,
+        recoveryKit: String?,
+        masterPassword: CharArray,
+    ): Boolean {
+        val kitBytes = recoveryKit?.let { RecoveryKit.decode(it) }
         val restored = withContext(Dispatchers.Default) {
             try {
-                Backup.import(bytes, recoveryPassphrase)
+                Backup.import(bytes, recoveryPassphrase, kitBytes)
             } catch (e: Exception) {
                 null
             } finally {
                 recoveryPassphrase.fill(' ')
+                kitBytes?.fill(0)
             }
         } ?: run { masterPassword.fill(' '); return false }
 

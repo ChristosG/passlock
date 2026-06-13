@@ -22,8 +22,8 @@ android {
         applicationId = "com.passlock"
         minSdk = 31
         targetSdk = 35
-        versionCode = 16
-        versionName = "0.4.0"
+        versionCode = 17
+        versionName = "0.5.0"
     }
 
     signingConfigs {

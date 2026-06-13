@@ -37,6 +37,11 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_PW_COLD, false)
         set(value) = prefs.edit().putBoolean(KEY_PW_COLD, value).apply()
 
+    /** When true (default), every exported backup is bound to a high-entropy Recovery Kit. */
+    var requireRecoveryKit: Boolean
+        get() = prefs.getBoolean(KEY_REQ_KIT, true)
+        set(value) = prefs.edit().putBoolean(KEY_REQ_KIT, value).apply()
+
     companion object {
         const val THEME_SYSTEM = "system"
         const val THEME_DARK = "dark"
@@ -49,5 +54,6 @@ class AppSettings(context: Context) {
         private const val KEY_LOCKOUT = "lockoutUntil"
         private const val KEY_FONT = "fontScale"
         private const val KEY_PW_COLD = "pwColdStart"
+        private const val KEY_REQ_KIT = "requireRecoveryKit"
     }
 }

@@ -19,7 +19,11 @@ data class KdfParams(
         /** Conservative defaults for daily unlock; calibrate per device at runtime. */
         val DAILY_DEFAULT = KdfParams(memoryKib = 64 * 1024, iterations = 3, parallelism = 1)
 
-        /** Stronger params for backups, which may live in riskier locations (mobile-safe memory). */
-        val BACKUP_DEFAULT = KdfParams(memoryKib = 128 * 1024, iterations = 4, parallelism = 1)
+        /**
+         * Stronger params for backups, which live in riskier locations and grant an attacker
+         * unlimited offline guesses. Raised to 256 MiB / t=4 — backups are made rarely and can
+         * tolerate ~1–2 s. Defense-in-depth behind the Recovery Kit, not a substitute for it.
+         */
+        val BACKUP_DEFAULT = KdfParams(memoryKib = 256 * 1024, iterations = 4, parallelism = 1)
     }
 }
