@@ -22,8 +22,8 @@ android {
         applicationId = "com.passlock"
         minSdk = 31
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.2.0"
+        versionCode = 13
+        versionName = "0.2.2"
     }
 
     signingConfigs {
@@ -85,6 +85,7 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation("androidx.compose.material:material-icons-core")
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit.jupiter)

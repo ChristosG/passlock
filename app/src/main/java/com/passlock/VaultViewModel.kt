@@ -198,6 +198,20 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private var expectingResult = false
+
+    /** Call right before launching a file/photo picker so it doesn't trip auto-lock. */
+    fun expectActivityResult() {
+        expectingResult = true
+    }
+
+    /** Consumes the "expecting a picker result" flag; used to skip auto-lock once. */
+    fun consumeExpectedResult(): Boolean {
+        val expected = expectingResult
+        expectingResult = false
+        return expected
+    }
+
     // ---------------- Biometric ----------------
 
     fun encryptCipherForEnroll(): Cipher? =

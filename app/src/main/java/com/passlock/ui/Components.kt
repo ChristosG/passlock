@@ -14,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PlainTooltip
@@ -33,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import com.passlock.VaultViewModel
 import androidx.compose.ui.text.input.KeyboardType
@@ -73,14 +76,14 @@ fun PasswordField(
     )
 }
 
-/** A glyph "icon" button with a long-press tooltip. */
+/** A glyph "icon" button (proper Material IconButton) with a long-press tooltip. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun IconAction(
     glyph: String,
     tooltip: String,
     tint: Color = MaterialTheme.colorScheme.primary,
-    glyphSize: TextUnit = 20.sp,
+    glyphSize: TextUnit = 18.sp,
     onClick: () -> Unit,
 ) {
     TooltipBox(
@@ -88,11 +91,28 @@ fun IconAction(
         tooltip = { PlainTooltip { Text(tooltip) } },
         state = rememberTooltipState(),
     ) {
-        Box(
-            modifier = Modifier.size(44.dp).clickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) {
+        IconButton(onClick = onClick) {
             Text(text = glyph, color = tint, fontSize = glyphSize)
+        }
+    }
+}
+
+/** A real Material-vector icon button with a long-press tooltip. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun IconAction(
+    icon: ImageVector,
+    tooltip: String,
+    tint: Color = MaterialTheme.colorScheme.primary,
+    onClick: () -> Unit,
+) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(tooltip) } },
+        state = rememberTooltipState(),
+    ) {
+        IconButton(onClick = onClick) {
+            Icon(imageVector = icon, contentDescription = tooltip, tint = tint)
         }
     }
 }

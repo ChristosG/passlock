@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -260,7 +262,7 @@ fun ItemDetailScreen(vm: VaultViewModel, itemId: String) {
         topBar = {
             TopAppBar(
                 title = { Text(item.title.ifBlank { "Untitled" }, fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconAction("←", "Back") { vm.back() } },
+                navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Back") { vm.back() } },
                 actions = {
                     IconAction(if (item.favorite) "★" else "☆", "Favorite") { vm.toggleFavorite(item.id) }
                     IconAction("✏", "Edit") { vm.openEditor(item.id) }
@@ -450,7 +452,7 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
         topBar = {
             TopAppBar(
                 title = { Text(if (isNew) "New secret" else "Edit", fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconAction("←", "Cancel") { vm.back() } },
+                navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Cancel") { vm.back() } },
                 actions = { IconAction("✓", "Save") { save() } },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
@@ -546,7 +548,7 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
                     }
                 }
             }
-            TextButton(onClick = { pickImage.launch("image/*") }) { Text("+ Add image") }
+            TextButton(onClick = { vm.expectActivityResult(); pickImage.launch("image/*") }) { Text("+ Add image") }
 
             if (!isNew) {
                 TextButton(onClick = { vm.deleteItem(existing!!.id) }) {
@@ -688,7 +690,7 @@ fun SettingsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Settings", fontWeight = FontWeight.Bold) },
-                navigationIcon = { IconAction("←", "Back") { vm.back() } },
+                navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Back") { vm.back() } },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
@@ -797,6 +799,7 @@ fun SettingsScreen(
             onConfirm = { pass ->
                 showExport = false
                 pendingPass = pass
+                vm.expectActivityResult()
                 createDoc.launch("passlock-backup.plk")
             },
         )

@@ -110,7 +110,7 @@ fun PassLockRoot(vm: VaultViewModel) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_STOP -> vm.lock()
+                Lifecycle.Event.ON_STOP -> if (!vm.consumeExpectedResult()) vm.lock()
                 Lifecycle.Event.ON_START -> vm.clearClipboardIfDue()
                 else -> {}
             }
@@ -167,7 +167,7 @@ fun PassLockRoot(vm: VaultViewModel) {
             onSubmit = vm::submitAuth,
             showBiometric = state is VaultUiState.Locked && vm.biometricUnlockOffered(),
             onBiometric = ::triggerBiometricUnlock,
-            onRestore = { openDoc.launch(arrayOf("*/*")) },
+            onRestore = { vm.expectActivityResult(); openDoc.launch(arrayOf("*/*")) },
             rooted = vm.rooted,
             lockoutUntilMs = vm.lockoutUntilMs,
         )
