@@ -1,10 +1,18 @@
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
 rootProject.name = "passlock"
 
 dependencyResolutionManagement {
     repositories {
-        mavenCentral()
         google()
+        mavenCentral()
     }
 }
 
-include(":core-crypto", ":core-domain")
+include(":core-crypto", ":core-domain", ":app")
