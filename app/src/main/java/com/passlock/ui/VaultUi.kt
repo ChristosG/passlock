@@ -663,6 +663,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showExport by remember { mutableStateOf(false) }
+    var showDuress by remember { mutableStateOf(false) }
     var pendingPass by remember { mutableStateOf<String?>(null) }
     var working by remember { mutableStateOf(false) }
 
@@ -740,6 +741,20 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(8.dp))
+            Text("Duress / decoy password", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            Text(
+                "A second password that opens a separate, empty decoy vault — for when you're forced to unlock. Your real vault stays hidden.",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (vm.duressEnabled) {
+                Text("✓ Duress password is set", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                TextButton(onClick = { vm.removeDuress() }) { Text("Remove duress password", color = MaterialTheme.colorScheme.error) }
+            } else {
+                Button(onClick = { showDuress = true }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Set up duress password") }
+            }
+
+            Spacer(Modifier.height(8.dp))
             Text("Unlock", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
             when {
                 !vm.biometricCapable -> Text("No biometrics enrolled on this device.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -786,6 +801,43 @@ fun SettingsScreen(
             },
         )
     }
+
+    if (showDuress) {
+        DuressDialog(
+            onDismiss = { showDuress = false },
+            onConfirm = { pass ->
+                showDuress = false
+                vm.setupDuress(pass.toCharArray())
+            },
+        )
+    }
+}
+
+@Composable
+private fun DuressDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+    var pass by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    val ok = pass.length >= 8 && pass == confirm
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = { onConfirm(pass) }, enabled = ok) { Text("Set") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        title = { Text("Duress password") },
+        text = {
+            Column {
+                Text(
+                    "Entering this at unlock opens a separate, empty decoy vault. Make it different from your real password.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+                PasswordField(value = pass, onValueChange = { pass = it }, label = "Duress password (8+)", modifier = Modifier.fillMaxWidth())
+                Spacer(Modifier.height(10.dp))
+                PasswordField(value = confirm, onValueChange = { confirm = it }, label = "Confirm", modifier = Modifier.fillMaxWidth())
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
 }
 
 @Composable

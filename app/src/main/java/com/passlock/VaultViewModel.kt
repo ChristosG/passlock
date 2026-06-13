@@ -21,6 +21,7 @@ import com.passlock.data.AppSettings
 import com.passlock.data.Backup
 import com.passlock.data.KeystoreManager
 import com.passlock.data.KeystoreOuterWrap
+import com.passlock.data.Opened
 import com.passlock.data.RootCheck
 import com.passlock.data.VaultStore
 import com.passlock.domain.Item
@@ -60,6 +61,9 @@ sealed interface Screen {
 class VaultViewModel(app: Application) : AndroidViewModel(app) {
     private val keystore = KeystoreManager()
     private val store = VaultStore(app.filesDir, KeystoreOuterWrap(keystore))
+    private val decoyStore = VaultStore(app.filesDir, KeystoreOuterWrap(keystore), "decoy.plk", "decoy_bio.plk")
+    private var activeStore: VaultStore = store
+    private var biometricSuppressed = false
     private val passwordGen = PasswordGenerator()
     private val settings = AppSettings(app)
     private val engine = BouncyCastleCryptoEngine()
@@ -80,6 +84,8 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     var themeMode by mutableStateOf(settings.themeMode)
         private set
     var autoWipeEnabled by mutableStateOf(settings.autoWipeEnabled)
+        private set
+    var duressEnabled by mutableStateOf(decoyStore.exists())
         private set
     var fontScale by mutableStateOf(settings.fontScale)
         private set
@@ -114,10 +120,21 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         busy = true
         val creating = !store.exists()
         viewModelScope.launch {
-            val opened = withContext(Dispatchers.Default) {
+            val result: Pair<VaultStore, Opened>? = withContext(Dispatchers.Default) {
                 val pw = password.toCharArray()
                 try {
-                    if (creating) store.create(pw) else store.unlock(pw)
+                    when {
+                        creating -> store to store.create(pw)
+                        else -> {
+                            val real = store.unlock(pw)
+                            if (real != null) {
+                                store to real
+                            } else {
+                                val decoy = if (decoyStore.exists()) decoyStore.unlock(pw) else null
+                                if (decoy != null) decoyStore to decoy else null
+                            }
+                        }
+                    }
                 } catch (e: Exception) {
                     null
                 } finally {
@@ -126,10 +143,13 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
             }
             busy = false
             when {
-                opened != null -> {
+                result != null -> {
+                    val (which, opened) = result
                     settings.failedAttempts = 0
                     settings.lockoutUntilMs = 0
-                    passwordUnlockedThisProcess = true
+                    activeStore = which
+                    biometricSuppressed = which !== store
+                    if (which === store) passwordUnlockedThisProcess = true
                     unlockInto(opened.dek, opened.vault)
                 }
                 creating -> error = "Couldn't create vault"
@@ -208,8 +228,13 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
                 try { store.unlockWithBiometric(authorizedCipher) } catch (e: Exception) { null }
             }
             busy = false
-            if (opened == null) error = "Biometric unlock failed — use your password"
-            else unlockInto(opened.dek, opened.vault)
+            if (opened == null) {
+                error = "Biometric unlock failed — use your password"
+            } else {
+                activeStore = store
+                biometricSuppressed = false
+                unlockInto(opened.dek, opened.vault)
+            }
         }
     }
 
@@ -234,7 +259,27 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Whether to offer biometric unlock now (respects the password-at-cold-start policy). */
     fun biometricUnlockOffered(): Boolean =
-        biometricCapable && biometricEnrolled && (!requirePasswordColdStart || passwordUnlockedThisProcess)
+        biometricCapable && biometricEnrolled && !biometricSuppressed &&
+            (!requirePasswordColdStart || passwordUnlockedThisProcess)
+
+    fun setupDuress(password: CharArray) {
+        viewModelScope.launch {
+            withContext(Dispatchers.Default) {
+                try {
+                    decoyStore.create(password)
+                } catch (e: Exception) {
+                } finally {
+                    password.fill(' ')
+                }
+            }
+            duressEnabled = true
+        }
+    }
+
+    fun removeDuress() {
+        decoyStore.wipe()
+        duressEnabled = false
+    }
 
     // ---------------- Encrypted backup ----------------
 
@@ -282,6 +327,8 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         keystore.deleteBiometricKey()
         biometricEnrolled = false
         passwordUnlockedThisProcess = true
+        activeStore = store
+        biometricSuppressed = false
         unlockInto(opened.dek, imported)
         return true
     }
@@ -344,7 +391,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun persist(key: ByteArray, newVault: Vault, onDone: () -> Unit) {
         viewModelScope.launch {
-            withContext(Dispatchers.Default) { store.save(key, newVault) }
+            withContext(Dispatchers.Default) { activeStore.save(key, newVault) }
             ui = VaultUiState.Unlocked(newVault)
             onDone()
         }

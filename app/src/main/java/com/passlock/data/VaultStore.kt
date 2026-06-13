@@ -22,10 +22,15 @@ class Opened(val dek: ByteArray, val vault: Vault)
  * hardware ([OuterWrap]) layer. A separate "bio.plk" file holds the DEK wrapped by a
  * biometric-gated Keystore key for quick re-unlock.
  */
-class VaultStore(filesDir: File, private val outerWrap: OuterWrap = IdentityOuterWrap) {
+class VaultStore(
+    filesDir: File,
+    private val outerWrap: OuterWrap = IdentityOuterWrap,
+    fileName: String = "vault.plk",
+    bioFileName: String = "bio.plk",
+) {
     private val engine = BouncyCastleCryptoEngine()
-    private val file = File(filesDir, "vault.plk")
-    private val bioFile = File(filesDir, "bio.plk")
+    private val file = File(filesDir, fileName)
+    private val bioFile = File(filesDir, bioFileName)
     private val rnd = SecureRandom()
     private val vaultAad = "passlock.vault.v1".toByteArray()
 
