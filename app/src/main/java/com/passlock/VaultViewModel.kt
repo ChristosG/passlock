@@ -13,9 +13,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.passlock.data.AppSettings
 import com.passlock.data.Backup
 import com.passlock.data.KeystoreManager
 import com.passlock.data.KeystoreOuterWrap
+import com.passlock.data.RootCheck
 import com.passlock.data.VaultStore
 import com.passlock.domain.Item
 import com.passlock.domain.PasswordGenerator
@@ -52,14 +54,23 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     private val keystore = KeystoreManager()
     private val store = VaultStore(app.filesDir, KeystoreOuterWrap(keystore))
     private val passwordGen = PasswordGenerator()
+    private val settings = AppSettings(app)
 
     private var dek: ByteArray? = null
+
+    /** Advisory root/tamper signal — we warn, never block. */
+    val rooted: Boolean = RootCheck.isLikelyRooted()
+    val lockoutUntilMs: Long get() = settings.lockoutUntilMs
 
     val biometricCapable: Boolean =
         BiometricManager.from(app).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) ==
             BiometricManager.BIOMETRIC_SUCCESS
 
     var biometricEnrolled by mutableStateOf(store.hasBiometric())
+        private set
+    var themeMode by mutableStateOf(settings.themeMode)
+        private set
+    var autoWipeEnabled by mutableStateOf(settings.autoWipeEnabled)
         private set
 
     var ui by mutableStateOf<VaultUiState>(if (store.exists()) VaultUiState.Locked else VaultUiState.Setup)
@@ -79,6 +90,11 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
     fun submitAuth(password: String) {
         if (busy || password.isEmpty()) return
+        val now = System.currentTimeMillis()
+        if (now < settings.lockoutUntilMs) {
+            error = "Locked — wait ${(settings.lockoutUntilMs - now) / 1000 + 1}s"
+            return
+        }
         error = null
         busy = true
         val creating = !store.exists()
@@ -94,7 +110,38 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             busy = false
-            if (opened == null) error = "Wrong master password" else unlockInto(opened.dek, opened.vault)
+            when {
+                opened != null -> {
+                    settings.failedAttempts = 0
+                    settings.lockoutUntilMs = 0
+                    unlockInto(opened.dek, opened.vault)
+                }
+                creating -> error = "Couldn't create vault"
+                else -> onFailedAttempt()
+            }
+        }
+    }
+
+    /** Escalating back-off after the 2nd wrong attempt; optional auto-wipe after N. */
+    private fun onFailedAttempt() {
+        val fails = settings.failedAttempts + 1
+        settings.failedAttempts = fails
+        when {
+            autoWipeEnabled && fails >= AppSettings.AUTO_WIPE_THRESHOLD -> {
+                store.wipe()
+                keystore.deleteBiometricKey()
+                biometricEnrolled = false
+                settings.failedAttempts = 0
+                settings.lockoutUntilMs = 0
+                ui = VaultUiState.Setup
+                error = "Too many attempts — vault wiped"
+            }
+            fails >= 2 -> {
+                val delaySec = (1L shl (fails - 1)).coerceAtMost(64)
+                settings.lockoutUntilMs = System.currentTimeMillis() + delaySec * 1000
+                error = "Wrong password — wait ${delaySec}s"
+            }
+            else -> error = "Wrong master password"
         }
     }
 
@@ -157,6 +204,9 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     fun openEditor(id: String?) { screen = Screen.Editor(id) }
     fun openSettings() { screen = Screen.Settings }
     fun back() { screen = Screen.List }
+
+    fun chooseTheme(mode: String) { settings.themeMode = mode; themeMode = mode }
+    fun chooseAutoWipe(enabled: Boolean) { settings.autoWipeEnabled = enabled; autoWipeEnabled = enabled }
 
     // ---------------- Encrypted backup ----------------
 

@@ -54,6 +54,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.passlock.VaultViewModel
+import com.passlock.data.AppSettings
 import com.passlock.domain.Field
 import com.passlock.domain.FieldType
 import com.passlock.domain.Item
@@ -602,6 +603,32 @@ fun SettingsScreen(vm: VaultViewModel) {
                 enabled = !working,
                 modifier = Modifier.fillMaxWidth().height(50.dp),
             ) { Text(if (working) "Exporting…" else "Export encrypted backup") }
+
+            Spacer(Modifier.height(8.dp))
+            Text("Appearance", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for ((mode, label) in listOf(
+                    AppSettings.THEME_SYSTEM to "System",
+                    AppSettings.THEME_DARK to "Dark",
+                    AppSettings.THEME_LIGHT to "Light",
+                )) {
+                    FilterChip(selected = vm.themeMode == mode, onClick = { vm.chooseTheme(mode) }, label = { Text(label) })
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Text("Security options", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = vm.autoWipeEnabled, onCheckedChange = { vm.chooseAutoWipe(it) })
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Auto-wipe after ${AppSettings.AUTO_WIPE_THRESHOLD} failed attempts",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp,
+                    )
+                    Text("Permanently erases the vault. Off by default.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
             Text("Security", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)

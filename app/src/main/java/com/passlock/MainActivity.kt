@@ -20,8 +20,8 @@ class MainActivity : FragmentActivity() {
         )
 
         setContent {
-            PassLockTheme {
-                val vm: VaultViewModel = viewModel()
+            val vm: VaultViewModel = viewModel()
+            PassLockTheme(vm.themeMode) {
                 PassLockRoot(vm)
             }
         }

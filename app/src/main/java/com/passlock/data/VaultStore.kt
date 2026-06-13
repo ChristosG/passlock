@@ -64,6 +64,13 @@ class VaultStore(filesDir: File, private val outerWrap: OuterWrap = IdentityOute
         writeRaw(raw.salt, raw.params, raw.wrapped, engine.aeadEncrypt(dek, VaultSerialization.encode(vault), vaultAad))
     }
 
+    /** Securely removes the vault and any biometric material (used by opt-in auto-wipe / reset). */
+    fun wipe() {
+        file.delete()
+        File(file.parentFile, file.name + ".tmp").delete()
+        bioFile.delete()
+    }
+
     // ---------------- Biometric quick-unlock ----------------
 
     fun hasBiometric(): Boolean = bioFile.exists()

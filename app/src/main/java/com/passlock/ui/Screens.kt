@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +50,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.passlock.Screen
 import com.passlock.VaultUiState
 import com.passlock.VaultViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import javax.crypto.Cipher
 
@@ -134,6 +136,8 @@ fun PassLockRoot(vm: VaultViewModel) {
             showBiometric = state is VaultUiState.Locked && vm.biometricCapable && vm.biometricEnrolled,
             onBiometric = ::triggerBiometricUnlock,
             onRestore = { openDoc.launch(arrayOf("*/*")) },
+            rooted = vm.rooted,
+            lockoutUntilMs = vm.lockoutUntilMs,
         )
     }
 
@@ -197,13 +201,25 @@ fun AuthScreen(
     showBiometric: Boolean = false,
     onBiometric: () -> Unit = {},
     onRestore: () -> Unit = {},
+    rooted: Boolean = false,
+    lockoutUntilMs: Long = 0L,
 ) {
     var password by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
 
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(lockoutUntilMs) {
+        while (System.currentTimeMillis() < lockoutUntilMs) {
+            nowMs = System.currentTimeMillis()
+            delay(500)
+        }
+        nowMs = System.currentTimeMillis()
+    }
+    val lockedRemaining = if (lockoutUntilMs > nowMs) ((lockoutUntilMs - nowMs) / 1000 + 1).toInt() else 0
+
     val tooShort = isSetup && password.isNotEmpty() && password.length < 8
     val mismatch = isSetup && confirm.isNotEmpty() && confirm != password
-    val canSubmit = !busy && password.isNotEmpty() &&
+    val canSubmit = !busy && lockedRemaining == 0 && password.isNotEmpty() &&
         (!isSetup || (password.length >= 8 && password == confirm))
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -212,6 +228,14 @@ fun AuthScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
+            if (rooted) {
+                Text(
+                    "⚠ This device looks rooted/tampered — your secrets may be at higher risk.",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
             Text("🔐", fontSize = 56.sp)
             Spacer(Modifier.height(16.dp))
             Text("PassLock", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
@@ -262,10 +286,10 @@ fun AuthScreen(
                 enabled = canSubmit,
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
-                if (busy) {
-                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
-                } else {
-                    Text(if (isSetup) "Create vault" else "Unlock", fontWeight = FontWeight.Bold)
+                when {
+                    busy -> CircularProgressIndicator(modifier = Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                    lockedRemaining > 0 -> Text("Locked ${lockedRemaining}s", fontWeight = FontWeight.Bold)
+                    else -> Text(if (isSetup) "Create vault" else "Unlock", fontWeight = FontWeight.Bold)
                 }
             }
             if (showBiometric) {
