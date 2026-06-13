@@ -23,6 +23,8 @@ data class Item(
     val icon: String? = null,
     val createdAt: Long,
     val updatedAt: Long,
+    /** Ids of encrypted image attachments stored as separate blobs. */
+    val attachments: List<String> = emptyList(),
 )
 
 data class Vault(

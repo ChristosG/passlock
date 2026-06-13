@@ -45,7 +45,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -282,6 +284,13 @@ fun ItemDetailScreen(vm: VaultViewModel, itemId: String) {
                     onCopy = { vm.copy(it) },
                 )
             }
+            if (item.attachments.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Images", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(6.dp))
+                for (att in item.attachments) {
+                    EncryptedImage(vm, att, Modifier.fillMaxWidth().height(220.dp).padding(vertical = 4.dp))
+                }
+            }
             if (item.tags.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text("Tags: ${item.tags.joinToString(", ")}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(6.dp))
@@ -374,6 +383,11 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
         }
     }
     var primaryId by remember { mutableStateOf(existing?.primaryFieldId ?: fields.firstOrNull()?.id) }
+    val scope = rememberCoroutineScope()
+    val attachments = remember { mutableStateListOf<String>().apply { existing?.attachments?.let { addAll(it) } } }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch { vm.encryptAndStoreImage(uri)?.let { attachments.add(it) } }
+    }
 
     fun applyTemplate(t: Template) {
         template = t
@@ -395,6 +409,7 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
                 primaryFieldId = primaryId?.takeIf { id -> built.any { it.id == id } } ?: built.firstOrNull()?.id,
                 createdAt = existing?.createdAt ?: System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis(),
+                attachments = attachments.toList(),
             ),
         )
     }
@@ -479,6 +494,27 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
             TextButton(onClick = { fields.add(EditableField(UUID.randomUUID().toString(), "", "", false, FieldType.TEXT)) }) {
                 Text("+ Add field")
             }
+
+            Text("Images", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (attachments.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    for (att in attachments) {
+                        Box {
+                            EncryptedImage(vm, att, Modifier.width(96.dp).height(96.dp))
+                            Box(Modifier.align(Alignment.TopEnd)) {
+                                IconAction("✕", "Remove image", tint = MaterialTheme.colorScheme.error) {
+                                    attachments.remove(att)
+                                    vm.deleteImageBlob(att)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            TextButton(onClick = { pickImage.launch("image/*") }) { Text("+ Add image") }
 
             if (!isNew) {
                 TextButton(onClick = { vm.deleteItem(existing!!.id) }) {

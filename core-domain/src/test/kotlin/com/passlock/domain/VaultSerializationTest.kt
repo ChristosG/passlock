@@ -28,6 +28,7 @@ class VaultSerializationTest {
                     icon = "credit_card",
                     createdAt = 111,
                     updatedAt = 222,
+                    attachments = listOf("att-1", "att-2"),
                 ),
                 Item("i2", "Note", Template.SECURE_NOTE, emptyList(), createdAt = 1, updatedAt = 2),
             ),

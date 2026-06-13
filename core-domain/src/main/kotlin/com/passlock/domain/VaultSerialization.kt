@@ -10,7 +10,7 @@ import java.io.DataOutputStream
  * Pure JVM so it is unit-testable and shared by the Android app.
  */
 object VaultSerialization {
-    private const val VERSION = 1
+    private const val VERSION = 2
 
     fun encode(vault: Vault): ByteArray {
         val bos = ByteArrayOutputStream()
@@ -36,6 +36,8 @@ object VaultSerialization {
                     out.writeUTF(field.type.name)
                     out.writeBoolean(field.isSecret)
                 }
+                out.writeInt(item.attachments.size)
+                for (att in item.attachments) out.writeUTF(att)
             }
         }
         return bos.toByteArray()
@@ -44,7 +46,7 @@ object VaultSerialization {
     fun decode(bytes: ByteArray): Vault {
         DataInputStream(ByteArrayInputStream(bytes)).use { inp ->
             val version = inp.readInt()
-            require(version == VERSION) { "unsupported vault version $version" }
+            require(version in 1..VERSION) { "unsupported vault version $version" }
             val itemCount = inp.readInt()
             val items = ArrayList<Item>(itemCount)
             repeat(itemCount) {
@@ -72,7 +74,13 @@ object VaultSerialization {
                         ),
                     )
                 }
-                items.add(Item(id, title, template, fields, tags, favorite, primary, icon, createdAt, updatedAt))
+                val attachments = if (version >= 2) {
+                    val attCount = inp.readInt()
+                    ArrayList<String>(attCount).apply { repeat(attCount) { add(inp.readUTF()) } }
+                } else {
+                    emptyList()
+                }
+                items.add(Item(id, title, template, fields, tags, favorite, primary, icon, createdAt, updatedAt, attachments))
             }
             return Vault(items)
         }

@@ -1,6 +1,9 @@
 package com.passlock
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
@@ -13,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.passlock.crypto.BouncyCastleCryptoEngine
 import com.passlock.data.AppSettings
 import com.passlock.data.Backup
 import com.passlock.data.KeystoreManager
@@ -33,8 +37,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.UUID
 import javax.crypto.Cipher
+import kotlin.math.max
 
 sealed interface VaultUiState {
     data object Setup : VaultUiState
@@ -55,6 +62,8 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     private val store = VaultStore(app.filesDir, KeystoreOuterWrap(keystore))
     private val passwordGen = PasswordGenerator()
     private val settings = AppSettings(app)
+    private val engine = BouncyCastleCryptoEngine()
+    private val attAad = "passlock.attachment.v1".toByteArray()
 
     private var dek: ByteArray? = null
 
@@ -322,6 +331,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteItem(id: String) {
         val key = dek ?: return
         val cur = vault ?: return
+        cur.items.firstOrNull { it.id == id }?.attachments?.forEach { deleteImageBlob(it) }
         persist(key, cur.copy(items = cur.items.filterNot { it.id == id })) { openList() }
     }
 
@@ -364,6 +374,57 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
             } catch (_: Exception) {
             }
         }
+    }
+
+    // ---------------- Encrypted image attachments ----------------
+
+    /** Downscales + JPEG-compresses, encrypts with the DEK, writes a blob, returns its id. */
+    suspend fun encryptAndStoreImage(uri: Uri): String? {
+        val key = dek ?: return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val app = getApplication<Application>()
+                val raw = app.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@withContext null
+                val processed = processImage(raw)
+                val blob = engine.aeadEncrypt(key, processed, attAad)
+                val id = UUID.randomUUID().toString()
+                File(app.filesDir, "att_$id.plk").writeBytes(blob)
+                id
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
+    suspend fun loadImage(id: String): ByteArray? {
+        val key = dek ?: return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val f = File(getApplication<Application>().filesDir, "att_$id.plk")
+                if (!f.exists()) null else engine.aeadDecrypt(key, f.readBytes(), attAad)
+            } catch (e: Exception) {
+                null
+            }
+        }
+    }
+
+    fun deleteImageBlob(id: String) {
+        File(getApplication<Application>().filesDir, "att_$id.plk").delete()
+    }
+
+    private fun processImage(bytes: ByteArray): ByteArray {
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return bytes
+        val maxDim = 1600
+        val largest = max(bmp.width, bmp.height)
+        val scaled = if (largest > maxDim) {
+            val s = maxDim.toFloat() / largest
+            Bitmap.createScaledBitmap(bmp, (bmp.width * s).toInt().coerceAtLeast(1), (bmp.height * s).toInt().coerceAtLeast(1), true)
+        } else {
+            bmp
+        }
+        val out = ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
+        return out.toByteArray()
     }
 
     override fun onCleared() {
