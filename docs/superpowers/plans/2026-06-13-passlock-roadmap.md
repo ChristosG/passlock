@@ -22,4 +22,9 @@
 - **Package root:** `com.passlock`.
 - **Commits:** small and frequent, conventional-commit style (`feat:`, `test:`, `chore:`).
 - **No `INTERNET` permission** is ever added; Phase 5 adds a build-time assertion that locks this in.
-- **Secrets in memory:** `ByteArray`/`CharArray`, never `String`, zeroized after use (enforced from Phase 1 in the crypto module; applied in UI from Phase 3).
+- **Secrets in memory (agreed pragmatic policy, decided after Phase 1 review):**
+  - Crypto **keys / KEK / DEK**: `ByteArray`, zeroized after use (enforced in `:core-crypto`).
+  - **Master password & recovery passphrase**: `CharArray`, zeroized immediately after key derivation (input boundary, Phase 3 UI).
+  - **Password generator**: offers `generateChars(): CharArray` for the wipeable path (added post-Phase-1).
+  - **Decrypted vault plaintext**: minimise lifetime; **zeroized on lock** (Phase 3 lock/auto-lock).
+  - `String` is **accepted** for `Field.value` while the vault is unlocked — UI (`Compose TextField`) and the Android clipboard use `String` regardless, so full `CharArray` purity in the model would pay ergonomic cost for partial protection. The at-rest forensic threat is covered by encryption; in-memory `String` only matters to a live-memory attacker on an unlocked device, mitigated by zeroize-on-lock.
