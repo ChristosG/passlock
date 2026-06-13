@@ -5,9 +5,13 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +38,7 @@ import com.passlock.VaultViewModel
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,19 +97,33 @@ fun IconAction(
     }
 }
 
-/** Loads an encrypted image attachment by id, decrypts it, and renders it. */
+/** Loads an encrypted image attachment by id, decrypts it, and renders it (rounded, with a loading state). */
 @Composable
-fun EncryptedImage(vm: VaultViewModel, id: String, modifier: Modifier = Modifier) {
+fun EncryptedImage(
+    vm: VaultViewModel,
+    id: String,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    cornerRadius: Dp = 12.dp,
+) {
     var bmp by remember(id) { mutableStateOf<ImageBitmap?>(null) }
+    var loading by remember(id) { mutableStateOf(true) }
     LaunchedEffect(id) {
+        loading = true
         val bytes = vm.loadImage(id)
         bmp = bytes?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }.getOrNull() }
+        loading = false
     }
-    val image = bmp
-    if (image != null) {
-        Image(bitmap = image, contentDescription = "attachment", modifier = modifier, contentScale = ContentScale.Crop)
-    } else {
-        Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant))
+    Box(
+        modifier = modifier.clip(RoundedCornerShape(cornerRadius)).background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        val image = bmp
+        when {
+            image != null -> Image(bitmap = image, contentDescription = "attachment", modifier = Modifier.fillMaxSize(), contentScale = contentScale)
+            loading -> CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+            else -> Text("🖼", fontSize = 26.sp)
+        }
     }
 }
 

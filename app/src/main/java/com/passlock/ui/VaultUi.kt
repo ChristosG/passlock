@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -239,6 +240,7 @@ fun ItemDetailScreen(vm: VaultViewModel, itemId: String) {
         return
     }
     var confirmDelete by remember { mutableStateOf(false) }
+    var viewerStart by remember { mutableStateOf<Int?>(null) }
     val revealed = remember { mutableStateMapOf<String, Boolean>() }
 
     // 1-second ticker for live TOTP codes.
@@ -286,9 +288,16 @@ fun ItemDetailScreen(vm: VaultViewModel, itemId: String) {
             }
             if (item.attachments.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                Text("Images", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(6.dp))
-                for (att in item.attachments) {
-                    EncryptedImage(vm, att, Modifier.fillMaxWidth().height(220.dp).padding(vertical = 4.dp))
+                Text("Images (${item.attachments.size})", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(6.dp))
+                val cols = 3
+                item.attachments.chunked(cols).forEachIndexed { rowIdx, rowIds ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rowIds.forEachIndexed { colIdx, att ->
+                            val index = rowIdx * cols + colIdx
+                            EncryptedImage(vm, att, Modifier.weight(1f).aspectRatio(1f).clickable { viewerStart = index })
+                        }
+                        repeat(cols - rowIds.size) { Spacer(Modifier.weight(1f)) }
+                    }
                 }
             }
             if (item.tags.isNotEmpty()) {
@@ -307,6 +316,10 @@ fun ItemDetailScreen(vm: VaultViewModel, itemId: String) {
             text = { Text("This permanently removes \"${item.title.ifBlank { "Untitled" }}\".") },
             containerColor = MaterialTheme.colorScheme.surface,
         )
+    }
+
+    viewerStart?.let { start ->
+        ImageViewer(vm, item.attachments, start) { viewerStart = null }
     }
 }
 
@@ -497,20 +510,21 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
 
             Text("Images", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (attachments.isNotEmpty()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    for (att in attachments) {
-                        Box {
-                            EncryptedImage(vm, att, Modifier.width(96.dp).height(96.dp))
-                            Box(Modifier.align(Alignment.TopEnd)) {
-                                IconAction("✕", "Remove image", tint = MaterialTheme.colorScheme.error) {
-                                    attachments.remove(att)
-                                    vm.deleteImageBlob(att)
+                val cols = 3
+                attachments.toList().chunked(cols).forEach { rowIds ->
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        rowIds.forEach { att ->
+                            Box(Modifier.weight(1f).aspectRatio(1f)) {
+                                EncryptedImage(vm, att, Modifier.fillMaxSize())
+                                Box(Modifier.align(Alignment.TopEnd)) {
+                                    IconAction("✕", "Remove image", tint = MaterialTheme.colorScheme.error) {
+                                        attachments.remove(att)
+                                        vm.deleteImageBlob(att)
+                                    }
                                 }
                             }
                         }
+                        repeat(cols - rowIds.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
