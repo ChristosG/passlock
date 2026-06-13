@@ -434,13 +434,13 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         clipboardClearAt = System.currentTimeMillis() + 30_000
         viewModelScope.launch {
             delay(30_000)
-            clearClipboard()
+            // Attempt the clear; if we're backgrounded the OS no-ops it, so we do NOT
+            // disarm the pending flag — clearClipboardIfDue() will retry on return.
+            tryClearClipboard()
         }
     }
 
-    /** Clears the clipboard. Works while PassLock is foreground; the OS blocks background clears. */
-    fun clearClipboard() {
-        clipboardClearAt = 0L
+    private fun tryClearClipboard() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) clipboard().clearPrimaryClip()
         } catch (_: Throwable) {
@@ -449,7 +449,10 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
     /** On returning to PassLock, clear any past-due sensitive copy (covers cross-app pastes). */
     fun clearClipboardIfDue() {
-        if (clipboardClearAt in 1..System.currentTimeMillis()) clearClipboard()
+        if (clipboardClearAt in 1..System.currentTimeMillis()) {
+            tryClearClipboard()
+            clipboardClearAt = 0L
+        }
     }
 
     private fun clipboard() =

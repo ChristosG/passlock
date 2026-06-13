@@ -585,20 +585,12 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = favorite, onCheckedChange = { favorite = it })
-                Text("Favorite", color = MaterialTheme.colorScheme.onSurface)
-            }
-
-            OutlinedTextField(
-                value = tagsText,
-                onValueChange = { tagsText = it },
-                label = { Text("Tags (comma-separated)") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+            Text("Fields", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+            Text(
+                "Everything here is encrypted. \"Hidden\", \"Password\" and \"PIN\" just keep the value masked on screen.",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-
-            Text("Fields", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             for (ef in fields) {
                 FieldEditCard(
                     field = ef,
@@ -643,6 +635,14 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
                 }
             }
             TextButton(onClick = { vm.expectActivityResult(); pickImage.launch("image/*") }) { Text("+ Add image") }
+
+            OutlinedTextField(
+                value = tagsText,
+                onValueChange = { tagsText = it },
+                label = { Text("Tags (optional)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             if (!isNew) {
                 TextButton(onClick = { vm.deleteItem(existing!!.id) }) {
@@ -689,47 +689,88 @@ private fun FieldEditCard(
                 },
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                FilterChip(
-                    selected = field.isSecret,
-                    onClick = { field.isSecret = !field.isSecret },
-                    label = { Text("Secret") },
-                    leadingIcon = if (field.isSecret) { { Text("✓") } } else null,
-                )
-                if (field.isSecret) {
-                    FilterChip(
-                        selected = field.requireBiometric,
-                        onClick = { field.requireBiometric = !field.requireBiometric },
-                        label = { Text("🔒 Bio") },
-                    )
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                val kind = FieldKind.of(field.type, field.isSecret)
+                KindSelector(kind) { k ->
+                    field.type = k.type
+                    field.isSecret = k.secret
                 }
-                TypeSelector(field.type) { field.type = it }
-                if (field.type == FieldType.PASSWORD || field.type == FieldType.PIN) {
-                    TextButton(onClick = onGenerate) { Text("🎲") }
+                InfoTip(kind.help)
+                if (isPrimary) {
+                    Spacer(Modifier.width(6.dp))
+                    Text("★ quick-copy", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
                 }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onSetPrimary) { Text(if (isPrimary) "★ Primary (quick-copy)" else "Set as primary") }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onRemove) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                if (field.type == FieldType.PASSWORD || field.type == FieldType.PIN) {
+                    IconAction("🎲", "Generate") { onGenerate() }
+                }
+                FieldOverflowMenu(field = field, isPrimary = isPrimary, onSetPrimary = onSetPrimary, onRemove = onRemove)
+            }
+        }
+    }
+}
+
+/** Friendly field "kinds" mapping to (type, secret) with plain-language help. */
+private enum class FieldKind(val label: String, val type: FieldType, val secret: Boolean, val help: String) {
+    TEXT("Text", FieldType.TEXT, false, "Plain text shown as-is — e.g. a username, email, or note."),
+    HIDDEN("Hidden text", FieldType.TEXT, true, "Text kept masked until you tap reveal."),
+    PASSWORD("Password", FieldType.PASSWORD, true, "A password — masked, with a 🎲 generator."),
+    PIN("PIN", FieldType.PIN, true, "A numeric PIN — masked, number keyboard, generator."),
+    NUMBER("Number", FieldType.NUMBER, false, "A number shown as-is — e.g. a card or account number."),
+    TOTP("2FA code", FieldType.TOTP_SEED, false, "Paste a 2FA secret or otpauth:// URI; PassLock shows the rotating code.");
+
+    companion object {
+        fun of(type: FieldType, secret: Boolean): FieldKind = when (type) {
+            FieldType.PASSWORD -> PASSWORD
+            FieldType.PIN -> PIN
+            FieldType.NUMBER -> NUMBER
+            FieldType.TOTP_SEED -> TOTP
+            FieldType.TEXT -> if (secret) HIDDEN else TEXT
+        }
+    }
+}
+
+@Composable
+private fun KindSelector(current: FieldKind, onSelect: (FieldKind) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        TextButton(onClick = { expanded = true }) { Text("${current.label} ▾") }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            for (k in FieldKind.entries) {
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(k.label, fontWeight = FontWeight.SemiBold)
+                            Text(k.help, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    onClick = { onSelect(k); expanded = false },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun TypeSelector(type: FieldType, onSelect: (FieldType) -> Unit) {
+private fun FieldOverflowMenu(field: EditableField, isPrimary: Boolean, onSetPrimary: () -> Unit, onRemove: () -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        TextButton(onClick = { expanded = true }) { Text(type.name) }
+        IconAction("⋮", "More options") { expanded = true }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            for (t in FieldType.entries) {
-                DropdownMenuItem(text = { Text(t.name) }, onClick = { onSelect(t); expanded = false })
+            DropdownMenuItem(
+                text = { Text(if (isPrimary) "★ Quick-copy field" else "Set as quick-copy") },
+                onClick = { onSetPrimary(); expanded = false },
+            )
+            if (field.isSecret) {
+                DropdownMenuItem(
+                    text = { Text(if (field.requireBiometric) "🔒 Biometric: ON" else "Require biometric to reveal") },
+                    onClick = { field.requireBiometric = !field.requireBiometric; expanded = false },
+                )
             }
+            DropdownMenuItem(
+                text = { Text("Delete field", color = MaterialTheme.colorScheme.error) },
+                onClick = { onRemove(); expanded = false },
+            )
         }
     }
 }
