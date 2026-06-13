@@ -15,15 +15,14 @@ class Opened(val dek: ByteArray, val vault: Vault)
 
 /**
  * Encrypted vault persistence. The vault file holds:
- *   magic | format | salt | argon2 params | wrapped-DEK | AEAD(vault) under the DEK.
- * The DEK is wrapped by an Argon2id key derived from the master password; the vault
- * body is encrypted with the DEK. A wrong password fails AEAD authentication, so
- * unlocking is gated on real cryptographic verification — never a UI flag.
+ *   magic | format | salt | argon2 params | outer(inner(DEK)) | AEAD(vault) under the DEK
  *
- * NOTE: this is the password-only layer. The hardware-Keystore outer wrap and
- * biometric gating are added in a later task.
+ * where inner = AEAD under an Argon2id key from the master password, and outer =
+ * the hardware ([OuterWrap]) layer. A wrong password fails the inner AEAD; a missing
+ * hardware key fails the outer layer — so unlocking is gated on real cryptographic
+ * verification, never a UI flag.
  */
-class VaultStore(filesDir: File) {
+class VaultStore(filesDir: File, private val outerWrap: OuterWrap = IdentityOuterWrap) {
     private val engine = BouncyCastleCryptoEngine()
     private val file = File(filesDir, "vault.plk")
     private val rnd = SecureRandom()
@@ -35,17 +34,23 @@ class VaultStore(filesDir: File) {
         val salt = ByteArray(16).also(rnd::nextBytes)
         val params = KdfParams.DAILY_DEFAULT
         val dek = engine.randomBytes(32)
-        val wrapped = PassphraseWrap.wrap(engine, password, salt, params, dek)
+        val inner = PassphraseWrap.wrap(engine, password, salt, params, dek)
+        val wrapped = outerWrap.wrap(inner)
         val vault = Vault()
         writeRaw(salt, params, wrapped, engine.aeadEncrypt(dek, VaultSerialization.encode(vault), vaultAad))
         return Opened(dek, vault)
     }
 
-    /** Returns null if the password is wrong (AEAD authentication fails). */
+    /** Returns null if the password is wrong or the hardware key is unavailable. */
     fun unlock(password: CharArray): Opened? {
         val raw = readRaw()
+        val inner = try {
+            outerWrap.unwrap(raw.wrapped)
+        } catch (e: Exception) {
+            return null
+        }
         val dek = try {
-            PassphraseWrap.unwrap(engine, password, raw.salt, raw.params, raw.wrapped)
+            PassphraseWrap.unwrap(engine, password, raw.salt, raw.params, inner)
         } catch (e: Exception) {
             return null
         }
@@ -96,6 +101,6 @@ class VaultStore(filesDir: File) {
 
     private companion object {
         const val MAGIC = 0x504C4B31 // "PLK1"
-        const val FORMAT = 1
+        const val FORMAT = 2
     }
 }
