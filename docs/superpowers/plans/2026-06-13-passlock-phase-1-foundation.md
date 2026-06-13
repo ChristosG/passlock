@@ -115,7 +115,7 @@ dependencies {
 
 tasks.test { useJUnitPlatform() }
 
-kotlin { jvmToolchain(17) }
+kotlin { jvmToolchain(21) }
 ```
 
 - [ ] **Step 5: Create `core-domain/build.gradle.kts`** (no Bouncy Castle — domain is dependency-free)
@@ -132,14 +132,14 @@ dependencies {
 
 tasks.test { useJUnitPlatform() }
 
-kotlin { jvmToolchain(17) }
+kotlin { jvmToolchain(21) }
 ```
 
 - [ ] **Step 6: Create the Gradle wrapper**
 
-Run (requires a local Gradle ≥ 8.10): `gradle wrapper --gradle-version 8.10.2`
-Expected: creates `gradlew`, `gradlew.bat`, and `gradle/wrapper/gradle-wrapper.jar`.
-If Gradle is not installed locally, install it (e.g. `sdk install gradle 8.10.2`) then run the command. Confirm `gradle/wrapper/gradle-wrapper.properties` points at `gradle-8.10.2-bin.zip`.
+A user-space Gradle 8.10.2 has been provisioned at `/mnt/nvme2TB/passlock/.tooling/gradle-8.10.2/bin/gradle` (the `.tooling/` dir is gitignored). JDK 21 is the installed toolchain.
+Run: `/mnt/nvme2TB/passlock/.tooling/gradle-8.10.2/bin/gradle wrapper --gradle-version 8.10.2`
+Expected: creates `gradlew`, `gradlew.bat`, and `gradle/wrapper/gradle-wrapper.jar`. After this, all subsequent commands use `./gradlew` (which auto-downloads its matching distribution on first run).
 
 - [ ] **Step 7: Verify the project configures**
 

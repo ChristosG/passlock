@@ -4,6 +4,9 @@
 # Session memory buffer
 .remember/
 
+# User-space tooling (Gradle distribution bootstrap)
+.tooling/
+
 # Android / Gradle (for when implementation starts)
 .gradle/
 build/
