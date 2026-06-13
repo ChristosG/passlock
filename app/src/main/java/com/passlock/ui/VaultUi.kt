@@ -76,6 +76,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
@@ -839,6 +840,7 @@ fun SettingsScreen(
     var pendingPass by remember { mutableStateOf<String?>(null) }
     var pendingKit by remember { mutableStateOf<String?>(null) }
     var kitToShow by remember { mutableStateOf<String?>(null) }
+    var showErase by remember { mutableStateOf(false) }
     var working by remember { mutableStateOf(false) }
 
     val createDoc = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
@@ -981,6 +983,20 @@ fun SettingsScreen(
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            Spacer(Modifier.height(16.dp))
+            Text("Danger zone", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+            Text(
+                "Erase the vault and all data, then start fresh. Use only if you've forgotten your " +
+                    "password — there is no recovery.",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = { showErase = true },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+            ) { Text("Erase & start over") }
         }
     }
 
@@ -1013,6 +1029,13 @@ fun SettingsScreen(
                 createDoc.launch("passlock-backup.plk")
             },
             onDismiss = { kitToShow = null; pendingPass = null; vm.endPickerFlow() },
+        )
+    }
+
+    if (showErase) {
+        EraseVaultDialog(
+            onDismiss = { showErase = false },
+            onErase = { showErase = false; vm.resetEverything() },
         )
     }
 

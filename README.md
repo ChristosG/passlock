@@ -38,6 +38,7 @@ A backup is a portable file, so it can't rely on the phone's hardware key and **
 - Strong password / PIN generator; tags & favorites
 - **Encrypted images & gallery** — attach photos to items or keep a standalone gallery (pinch-to-zoom viewer); long-press an image to export a single copy to your phone gallery or delete it with confirmation
 - **Encrypted backup & restore** with a separate recovery passphrase + Recovery Kit (see above)
+- **Forgot-password reset** — "Erase & start over" from the unlock screen or Settings (behind a typed `ERASE` confirmation) wipes everything and returns to first-run setup, since a forgotten master password is unrecoverable by design
 - Modern bottom-sheet menus, (i) help tooltips, dark / light / system theme, adjustable text size
 
 ## Install (auto-updating)

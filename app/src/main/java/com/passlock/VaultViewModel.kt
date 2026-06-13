@@ -291,6 +291,34 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     fun chooseRequirePassword(enabled: Boolean) { settings.requirePasswordColdStart = enabled; requirePasswordColdStart = enabled }
     fun chooseRequireRecoveryKit(enabled: Boolean) { settings.requireRecoveryKit = enabled; requireRecoveryKit = enabled }
 
+    /**
+     * Forgot-password escape hatch: permanently erases the real vault, the decoy vault, every
+     * encrypted image, biometric material and counters, then returns to first-run setup. There is
+     * no recovery — the data was unreadable without the password anyway, so this only starts fresh.
+     */
+    fun resetEverything() {
+        dek?.let { engine.zeroize(it) }
+        dek = null
+        store.wipe()
+        decoyStore.wipe()
+        keystore.deleteBiometricKey()
+        getApplication<Application>().filesDir.listFiles()?.forEach { f ->
+            if (f.name.startsWith("att_") && f.name.endsWith(".plk")) f.delete()
+        }
+        settings.failedAttempts = 0
+        settings.lockoutUntilMs = 0
+        biometricEnrolled = false
+        duressEnabled = false
+        biometricSuppressed = false
+        passwordUnlockedThisProcess = false
+        activeStore = store
+        endPickerFlow()
+        query = SearchQuery()
+        error = null
+        screen = Screen.List
+        ui = VaultUiState.Setup
+    }
+
     fun disableBiometric() {
         store.disableBiometric()
         keystore.deleteBiometricKey()

@@ -142,6 +142,7 @@ fun PassLockRoot(vm: VaultViewModel) {
 
     // Restore-from-backup file picker.
     var restoreBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var showErase by remember { mutableStateOf(false) }
     val openDoc = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
@@ -169,6 +170,7 @@ fun PassLockRoot(vm: VaultViewModel) {
             showBiometric = state is VaultUiState.Locked && vm.biometricUnlockOffered(),
             onBiometric = ::triggerBiometricUnlock,
             onRestore = { vm.expectActivityResult(); openDoc.launch(arrayOf("*/*")) },
+            onReset = if (state is VaultUiState.Locked) ({ showErase = true }) else null,
             rooted = vm.rooted,
             lockoutUntilMs = vm.lockoutUntilMs,
         )
@@ -185,6 +187,13 @@ fun PassLockRoot(vm: VaultViewModel) {
                     if (!ok) Toast.makeText(context, "Restore failed — wrong passphrase or recovery kit", Toast.LENGTH_LONG).show()
                 }
             },
+        )
+    }
+
+    if (showErase) {
+        EraseVaultDialog(
+            onDismiss = { showErase = false },
+            onErase = { showErase = false; vm.resetEverything() },
         )
     }
 }
@@ -243,6 +252,40 @@ private fun RestoreDialog(needsKit: Boolean, onDismiss: () -> Unit, onConfirm: (
 }
 
 @Composable
+fun EraseVaultDialog(onDismiss: () -> Unit, onErase: () -> Unit) {
+    var typed by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onErase, enabled = typed.trim() == "ERASE") {
+                Text("Erase", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        title = { Text("Erase everything?") },
+        text = {
+            Column {
+                Text(
+                    "This permanently deletes your vault, all images, and the decoy vault. There is no " +
+                        "recovery — only do this if you've forgotten your password and accept losing the data.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = typed,
+                    onValueChange = { typed = it },
+                    label = { Text("Type ERASE to confirm") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
+}
+
+@Composable
 fun AuthScreen(
     isSetup: Boolean,
     busy: Boolean,
@@ -251,6 +294,7 @@ fun AuthScreen(
     showBiometric: Boolean = false,
     onBiometric: () -> Unit = {},
     onRestore: () -> Unit = {},
+    onReset: (() -> Unit)? = null,
     rooted: Boolean = false,
     lockoutUntilMs: Long = 0L,
 ) {
@@ -344,6 +388,11 @@ fun AuthScreen(
             }
             Spacer(Modifier.height(10.dp))
             TextButton(onClick = onRestore, enabled = !busy) { Text("Restore from backup") }
+            if (onReset != null) {
+                TextButton(onClick = onReset, enabled = !busy) {
+                    Text("Forgot password? Erase & start over", color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                }
+            }
             Spacer(Modifier.height(16.dp))
             Text("Offline · encrypted · no network", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
