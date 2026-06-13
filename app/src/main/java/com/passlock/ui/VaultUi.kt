@@ -32,8 +32,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -151,17 +149,11 @@ fun VaultListScreen(vm: VaultViewModel, onEnableBiometric: (() -> Unit)?) {
             )
         },
         floatingActionButton = {
-            Box {
-                FloatingActionButton(
-                    onClick = { fabMenu = true },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) { Text("+", fontSize = 26.sp) }
-                DropdownMenu(expanded = fabMenu, onDismissRequest = { fabMenu = false }) {
-                    DropdownMenuItem(text = { Text("🗂  New secret") }, onClick = { fabMenu = false; vm.openEditor(null) })
-                    DropdownMenuItem(text = { Text("🖼  Add photo") }, onClick = { fabMenu = false; vm.expectActivityResult(); pickGalleryImage.launch("image/*") })
-                }
-            }
+            FloatingActionButton(
+                onClick = { fabMenu = true },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            ) { Text("+", fontSize = 26.sp) }
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -195,6 +187,16 @@ fun VaultListScreen(vm: VaultViewModel, onEnableBiometric: (() -> Unit)?) {
                     items(items, key = { it.id }) { item -> ItemRow(vm, item) }
                 }
             }
+        }
+        if (fabMenu) {
+            OptionSheet(
+                title = "Add",
+                options = listOf(
+                    SheetOption("New secret", description = "Create a login, card, note…", emoji = "🗂") { vm.openEditor(null) },
+                    SheetOption("Add photo", description = "Encrypt a photo into your gallery", emoji = "🖼") { vm.expectActivityResult(); pickGalleryImage.launch("image/*") },
+                ),
+                onDismiss = { fabMenu = false },
+            )
         }
     }
 }
@@ -230,14 +232,13 @@ private fun FilterRow(vm: VaultViewModel) {
 private fun ItemRow(vm: VaultViewModel, item: Item) {
     val primary = primaryField(item)
     var menu by remember { mutableStateOf(false) }
-    Box {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth().combinedClickable(
-                onClick = { vm.openDetail(item.id) },
-                onLongClick = { menu = true },
-            ),
-        ) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth().combinedClickable(
+            onClick = { vm.openDetail(item.id) },
+            onLongClick = { menu = true },
+        ),
+    ) {
         Row(modifier = Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(templateIcon(item.template), fontSize = 22.sp)
             Spacer(Modifier.width(12.dp))
@@ -252,16 +253,22 @@ private fun ItemRow(vm: VaultViewModel, item: Item) {
                     vm.copy(v)
                 }
             }
-            }
         }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            DropdownMenuItem(text = { Text("Edit") }, onClick = { menu = false; vm.openEditor(item.id) })
-            DropdownMenuItem(
-                text = { Text(if (item.favorite) "Unfavorite" else "Favorite") },
-                onClick = { menu = false; vm.toggleFavorite(item.id) },
-            )
-            DropdownMenuItem(text = { Text("Delete") }, onClick = { menu = false; vm.deleteItem(item.id) })
-        }
+    }
+    if (menu) {
+        OptionSheet(
+            title = item.title.ifBlank { "Untitled" },
+            options = listOf(
+                SheetOption("Edit", emoji = "✏️") { vm.openEditor(item.id) },
+                SheetOption(
+                    label = if (item.favorite) "Remove from favorites" else "Add to favorites",
+                    emoji = if (item.favorite) "★" else "☆",
+                    selected = item.favorite,
+                ) { vm.toggleFavorite(item.id) },
+                SheetOption("Delete", emoji = "🗑", destructive = true) { vm.deleteItem(item.id) },
+            ),
+            onDismiss = { menu = false },
+        )
     }
 }
 
@@ -271,7 +278,9 @@ private fun ItemRow(vm: VaultViewModel, item: Item) {
 fun GalleryScreen(vm: VaultViewModel) {
     val ids = vm.allImageIds()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var viewerStart by remember { mutableStateOf<Int?>(null) }
+    var actionId by remember { mutableStateOf<String?>(null) }
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) scope.launch { vm.addGalleryImage(uri) }
     }
@@ -317,7 +326,7 @@ fun GalleryScreen(vm: VaultViewModel) {
                         id = id,
                         modifier = Modifier.aspectRatio(1f).combinedClickable(
                             onClick = { viewerStart = index },
-                            onLongClick = { vm.deleteGalleryImage(id) },
+                            onLongClick = { actionId = id },
                         ),
                     )
                 }
@@ -326,6 +335,30 @@ fun GalleryScreen(vm: VaultViewModel) {
     }
 
     viewerStart?.let { start -> ImageViewer(vm, ids, start) { viewerStart = null } }
+
+    actionId?.let { id ->
+        OptionSheet(
+            title = "Photo",
+            options = buildList {
+                add(
+                    SheetOption(
+                        label = "Save to phone gallery",
+                        emoji = "⬇️",
+                        description = "Exports a plaintext copy to Pictures/PassLock — only do this if you're ok with it leaving the vault.",
+                    ) {
+                        scope.launch {
+                            val ok = vm.saveImageToPhoneGallery(id)
+                            Toast.makeText(context, if (ok) "Saved to Pictures/PassLock ✓" else "Couldn't save", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                )
+                if (vm.isStandaloneImage(id)) {
+                    add(SheetOption("Delete photo", emoji = "🗑", destructive = true) { vm.deleteGalleryImage(id) })
+                }
+            },
+            onDismiss = { actionId = null },
+        )
+    }
 }
 
 // ---------------------------------------------------------------- Detail
@@ -585,12 +618,10 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            Text("Fields", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-            Text(
-                "Everything here is encrypted. \"Hidden\", \"Password\" and \"PIN\" just keep the value masked on screen.",
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Fields", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                InfoTip("Everything here is encrypted. \"Hidden\", \"Password\" and \"PIN\" just keep the value masked on screen — they don't change how it's secured.")
+            }
             for (ef in fields) {
                 FieldEditCard(
                     field = ef,
@@ -692,6 +723,7 @@ private fun FieldEditCard(
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 val kind = FieldKind.of(field.type, field.isSecret)
                 KindSelector(kind) { k ->
+                    if (field.label.isBlank()) field.label = k.label
                     field.type = k.type
                     field.isSecret = k.secret
                 }
@@ -732,46 +764,48 @@ private enum class FieldKind(val label: String, val type: FieldType, val secret:
 
 @Composable
 private fun KindSelector(current: FieldKind, onSelect: (FieldKind) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        TextButton(onClick = { expanded = true }) { Text("${current.label} ▾") }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            for (k in FieldKind.entries) {
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text(k.label, fontWeight = FontWeight.SemiBold)
-                            Text(k.help, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    },
-                    onClick = { onSelect(k); expanded = false },
-                )
-            }
-        }
+    var sheet by remember { mutableStateOf(false) }
+    TextButton(onClick = { sheet = true }) { Text("${current.label} ▾") }
+    if (sheet) {
+        OptionSheet(
+            title = "Field kind",
+            options = FieldKind.entries.map { k ->
+                SheetOption(label = k.label, description = k.help, selected = k == current) { onSelect(k) }
+            },
+            onDismiss = { sheet = false },
+        )
     }
 }
 
 @Composable
 private fun FieldOverflowMenu(field: EditableField, isPrimary: Boolean, onSetPrimary: () -> Unit, onRemove: () -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        IconAction("⋮", "More options") { expanded = true }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text(if (isPrimary) "★ Quick-copy field" else "Set as quick-copy") },
-                onClick = { onSetPrimary(); expanded = false },
-            )
-            if (field.isSecret) {
-                DropdownMenuItem(
-                    text = { Text(if (field.requireBiometric) "🔒 Biometric: ON" else "Require biometric to reveal") },
-                    onClick = { field.requireBiometric = !field.requireBiometric; expanded = false },
+    var sheet by remember { mutableStateOf(false) }
+    IconAction("⋮", "More options") { sheet = true }
+    if (sheet) {
+        OptionSheet(
+            title = null,
+            options = buildList {
+                add(
+                    SheetOption(
+                        label = if (isPrimary) "Quick-copy field" else "Set as quick-copy",
+                        emoji = "⧉",
+                        description = "The value copied from the home screen tap.",
+                        selected = isPrimary,
+                    ) { onSetPrimary() },
                 )
-            }
-            DropdownMenuItem(
-                text = { Text("Delete field", color = MaterialTheme.colorScheme.error) },
-                onClick = { onRemove(); expanded = false },
-            )
-        }
+                if (field.isSecret) {
+                    add(
+                        SheetOption(
+                            label = if (field.requireBiometric) "Biometric reveal: ON" else "Require biometric to reveal",
+                            emoji = "🔒",
+                            selected = field.requireBiometric,
+                        ) { field.requireBiometric = !field.requireBiometric },
+                    )
+                }
+                add(SheetOption("Delete field", emoji = "🗑", destructive = true) { onRemove() })
+            },
+            onDismiss = { sheet = false },
+        )
     }
 }
 

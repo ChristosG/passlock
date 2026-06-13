@@ -7,7 +7,9 @@ import android.net.Uri
 import android.content.ClipData
 import android.content.ClipDescription
 import android.content.ClipboardManager
+import android.content.ContentValues
 import android.content.Context
+import android.provider.MediaStore
 import android.os.Build
 import android.os.PersistableBundle
 import androidx.biometric.BiometricManager
@@ -300,10 +302,11 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------- Encrypted backup ----------------
 
     /** Produces an encrypted backup of the current vault under a recovery passphrase. */
-    suspend fun exportBytes(passphrase: CharArray): ByteArray? = withContext(Dispatchers.Default) {
-        val v = vault ?: return@withContext null
+    suspend fun exportBytes(passphrase: CharArray): ByteArray? = withContext(Dispatchers.IO) {
+        val v = vault ?: run { passphrase.fill(' '); return@withContext null }
         try {
-            Backup.export(v, passphrase)
+            val images = allImageIds().mapNotNull { id -> decryptBlob(id)?.let { id to it } }.toMap()
+            Backup.export(v, images, passphrase)
         } catch (e: Exception) {
             null
         } finally {
@@ -317,7 +320,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
      * Replaces any existing vault. Returns false if the recovery passphrase is wrong.
      */
     suspend fun restoreFromBackup(bytes: ByteArray, recoveryPassphrase: CharArray, masterPassword: CharArray): Boolean {
-        val imported = withContext(Dispatchers.Default) {
+        val restored = withContext(Dispatchers.Default) {
             try {
                 Backup.import(bytes, recoveryPassphrase)
             } catch (e: Exception) {
@@ -327,11 +330,16 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
             }
         } ?: run { masterPassword.fill(' '); return false }
 
-        val opened = withContext(Dispatchers.Default) {
+        val opened = withContext(Dispatchers.IO) {
             try {
                 store.disableBiometric()
                 val o = store.create(masterPassword)
-                store.save(o.dek, imported)
+                // Re-encrypt the bundled images under the NEW device key.
+                val dir = getApplication<Application>().filesDir
+                restored.images.forEach { (id, data) ->
+                    File(dir, "att_$id.plk").writeBytes(engine.aeadEncrypt(o.dek, data, attAad))
+                }
+                store.save(o.dek, restored.vault)
                 o
             } catch (e: Exception) {
                 null
@@ -345,7 +353,7 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         passwordUnlockedThisProcess = true
         activeStore = store
         biometricSuppressed = false
-        unlockInto(opened.dek, imported)
+        unlockInto(opened.dek, restored.vault)
         return true
     }
 
@@ -478,15 +486,33 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    suspend fun loadImage(id: String): ByteArray? {
+    private fun decryptBlob(id: String): ByteArray? {
         val key = dek ?: return null
-        return withContext(Dispatchers.IO) {
-            try {
-                val f = File(getApplication<Application>().filesDir, "att_$id.plk")
-                if (!f.exists()) null else engine.aeadDecrypt(key, f.readBytes(), attAad)
-            } catch (e: Throwable) {
-                null
+        return try {
+            val f = File(getApplication<Application>().filesDir, "att_$id.plk")
+            if (!f.exists()) null else engine.aeadDecrypt(key, f.readBytes(), attAad)
+        } catch (e: Throwable) {
+            null
+        }
+    }
+
+    suspend fun loadImage(id: String): ByteArray? = withContext(Dispatchers.IO) { decryptBlob(id) }
+
+    /** Exports a decrypted copy of an image to the phone's Pictures gallery (the user's explicit choice). */
+    suspend fun saveImageToPhoneGallery(id: String): Boolean = withContext(Dispatchers.IO) {
+        val bytes = decryptBlob(id) ?: return@withContext false
+        try {
+            val resolver = getApplication<Application>().contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, "passlock_${System.currentTimeMillis()}.jpg")
+                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/PassLock")
             }
+            val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return@withContext false
+            resolver.openOutputStream(uri)?.use { it.write(bytes) } ?: return@withContext false
+            true
+        } catch (e: Throwable) {
+            false
         }
     }
 
@@ -499,6 +525,9 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         val v = vault ?: return emptyList()
         return (v.items.flatMap { it.attachments } + v.galleryImages).distinct()
     }
+
+    /** True if this id is a standalone gallery photo (deletable here), not an item attachment. */
+    fun isStandaloneImage(id: String): Boolean = vault?.galleryImages?.contains(id) == true
 
     suspend fun addGalleryImage(uri: Uri) {
         val key = dek ?: return

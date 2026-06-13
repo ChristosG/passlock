@@ -5,9 +5,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.Alignment
@@ -17,6 +22,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Text
@@ -36,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.layout.ContentScale
 import com.passlock.VaultViewModel
 import androidx.compose.ui.text.input.KeyboardType
@@ -143,6 +150,56 @@ fun EncryptedImage(
             image != null -> Image(bitmap = image, contentDescription = "attachment", modifier = Modifier.fillMaxSize(), contentScale = contentScale)
             loading -> CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
             else -> Text("🖼", fontSize = 26.sp)
+        }
+    }
+}
+
+/** One row in an [OptionSheet]. */
+data class SheetOption(
+    val label: String,
+    val description: String? = null,
+    val emoji: String? = null,
+    val destructive: Boolean = false,
+    val selected: Boolean = false,
+    val onClick: () -> Unit,
+)
+
+/** A modern bottom-sheet picker — replaces the dated dropdown menus. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OptionSheet(title: String?, options: List<SheetOption>, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 28.dp)) {
+            if (!title.isNullOrEmpty()) {
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
+                )
+            }
+            options.forEach { opt ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { onDismiss(); opt.onClick() }.padding(horizontal = 22.dp, vertical = 15.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (opt.emoji != null) {
+                        Text(opt.emoji, fontSize = 20.sp)
+                        Spacer(Modifier.width(16.dp))
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = opt.label,
+                            fontWeight = FontWeight.Medium,
+                            color = if (opt.destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (opt.description != null) {
+                            Text(opt.description, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    if (opt.selected) Text("✓", color = MaterialTheme.colorScheme.primary, fontSize = 18.sp)
+                }
+            }
         }
     }
 }
