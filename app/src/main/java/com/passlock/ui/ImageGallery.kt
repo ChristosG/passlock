@@ -3,7 +3,10 @@ package com.passlock.ui
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -25,6 +28,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.passlock.VaultViewModel
@@ -66,9 +70,21 @@ private fun ZoomableImage(vm: VaultViewModel, id: String) {
     var offset by remember(id) { mutableStateOf(Offset.Zero) }
     Box(
         modifier = Modifier.fillMaxSize().pointerInput(id) {
-            detectTransformGestures { _, pan, zoom, _ ->
-                scale = (scale * zoom).coerceIn(1f, 5f)
-                offset = if (scale > 1f) offset + pan else Offset.Zero
+            // Hand-rolled gesture loop so we only CONSUME the touch when there's an actual zoom
+            // (pinch) or we're already zoomed in. A flat horizontal swipe at scale 1f is left
+            // unconsumed, so it bubbles up to the HorizontalPager and roams to the next/prev photo.
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                do {
+                    val event = awaitPointerEvent()
+                    val zoom = event.calculateZoom()
+                    val pan = event.calculatePan()
+                    if (zoom != 1f || scale > 1f) {
+                        scale = (scale * zoom).coerceIn(1f, 5f)
+                        offset = if (scale > 1f) offset + pan else Offset.Zero
+                        event.changes.forEach { if (it.positionChanged()) it.consume() }
+                    }
+                } while (event.changes.any { it.pressed })
             }
         },
         contentAlignment = Alignment.Center,

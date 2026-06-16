@@ -251,6 +251,17 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
         expectingResult = false
     }
 
+    /**
+     * Clears a pending one-shot picker expectation once we're safely back in the foreground.
+     * Some pickers (e.g. the system photo picker) can return without ever firing ON_STOP, which
+     * would otherwise leave [expectingResult] stuck true and silently suppress the auto-lock on the
+     * NEXT genuine backgrounding — i.e. you'd return to an already-unlocked vault. Sticky multi-step
+     * flows ([pickerFlowActive]) manage their own lifetime via [endPickerFlow], so leave those alone.
+     */
+    fun clearExpectedResult() {
+        if (!pickerFlowActive) expectingResult = false
+    }
+
     /** Whether an ON_STOP should skip the auto-lock (sticky flow, or a single expected picker). */
     fun consumeExpectedResult(): Boolean {
         if (pickerFlowActive) return true
@@ -619,6 +630,18 @@ class VaultViewModel(app: Application) : AndroidViewModel(app) {
 
     /** True if this id is a standalone gallery photo (deletable here), not an item attachment. */
     fun isStandaloneImage(id: String): Boolean = vault?.galleryImages?.contains(id) == true
+
+    /** Encrypts and stores several picked photos, then persists the vault once for the whole batch. */
+    suspend fun addGalleryImages(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val key = dek ?: return
+        val cur = vault ?: return
+        val newIds = uris.mapNotNull { encryptAndStoreImage(it) }
+        if (newIds.isEmpty()) return
+        val newVault = cur.copy(galleryImages = cur.galleryImages + newIds)
+        withContext(Dispatchers.Default) { activeStore.save(key, newVault) }
+        ui = VaultUiState.Unlocked(newVault)
+    }
 
     suspend fun addGalleryImage(uri: Uri) {
         val key = dek ?: return

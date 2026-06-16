@@ -74,6 +74,7 @@ import com.passlock.domain.PasswordPolicy
 import com.passlock.domain.Template
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -130,8 +131,8 @@ fun VaultListScreen(vm: VaultViewModel, onEnableBiometric: (() -> Unit)?) {
     val items = vm.visibleItems()
     val scope = rememberCoroutineScope()
     var fabMenu by remember { mutableStateOf(false) }
-    val pickGalleryImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) scope.launch { vm.addGalleryImage(uri) }
+    val pickGalleryImage = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) scope.launch { vm.addGalleryImages(uris) }
     }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -195,7 +196,7 @@ fun VaultListScreen(vm: VaultViewModel, onEnableBiometric: (() -> Unit)?) {
                 title = "Add",
                 options = listOf(
                     SheetOption("New secret", description = "Create a login, card, note…", emoji = "🗂") { vm.openEditor(null) },
-                    SheetOption("Add photo", description = "Encrypt a photo into your gallery", emoji = "🖼") { vm.expectActivityResult(); pickGalleryImage.launch("image/*") },
+                    SheetOption("Add photo", description = "Encrypt photos into your gallery", emoji = "🖼") { vm.expectActivityResult(); pickGalleryImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 ),
                 onDismiss = { fabMenu = false },
             )
@@ -283,8 +284,8 @@ fun GalleryScreen(vm: VaultViewModel) {
     val context = LocalContext.current
     var viewerStart by remember { mutableStateOf<Int?>(null) }
     var actionId by remember { mutableStateOf<String?>(null) }
-    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) scope.launch { vm.addGalleryImage(uri) }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) scope.launch { vm.addGalleryImages(uris) }
     }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -292,7 +293,7 @@ fun GalleryScreen(vm: VaultViewModel) {
             TopAppBar(
                 title = { Text("Gallery (${ids.size})", fontWeight = FontWeight.Bold) },
                 navigationIcon = { IconAction(Icons.AutoMirrored.Filled.ArrowBack, "Back") { vm.back() } },
-                actions = { IconAction("➕", "Add photo") { vm.expectActivityResult(); pickImage.launch("image/*") } },
+                actions = { IconAction("➕", "Add photo") { vm.expectActivityResult(); pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) } },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background,
                     titleContentColor = MaterialTheme.colorScheme.onBackground,
@@ -547,8 +548,8 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
     var primaryId by remember { mutableStateOf(existing?.primaryFieldId ?: fields.firstOrNull()?.id) }
     val scope = rememberCoroutineScope()
     val attachments = remember { mutableStateListOf<String>().apply { existing?.attachments?.let { addAll(it) } } }
-    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) scope.launch { vm.encryptAndStoreImage(uri)?.let { attachments.add(it) } }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { uris ->
+        if (uris.isNotEmpty()) scope.launch { uris.forEach { uri -> vm.encryptAndStoreImage(uri)?.let { attachments.add(it) } } }
     }
 
     fun applyTemplate(t: Template) {
@@ -667,7 +668,7 @@ fun ItemEditorScreen(vm: VaultViewModel, itemId: String?) {
                     }
                 }
             }
-            TextButton(onClick = { vm.expectActivityResult(); pickImage.launch("image/*") }) { Text("+ Add image") }
+            TextButton(onClick = { vm.expectActivityResult(); pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text("+ Add images") }
 
             OutlinedTextField(
                 value = tagsText,

@@ -133,13 +133,17 @@ fun PassLockRoot(vm: VaultViewModel) {
             when (event) {
                 Lifecycle.Event.ON_STOP -> if (!vm.consumeExpectedResult()) vm.lock()
                 Lifecycle.Event.ON_START -> vm.clearClipboardIfDue()
-                Lifecycle.Event.ON_RESUME ->
+                Lifecycle.Event.ON_RESUME -> {
+                    // Back in the foreground: retire any one-shot picker expectation so it can't
+                    // leak into a later genuine backgrounding and suppress the auto-lock.
+                    vm.clearExpectedResult()
                     if (vm.ui is VaultUiState.Locked && vm.biometricUnlockOffered() &&
                         System.currentTimeMillis() - lastAutoPrompt[0] > 1500
                     ) {
                         lastAutoPrompt[0] = System.currentTimeMillis()
                         triggerBiometricUnlock()
                     }
+                }
                 else -> {}
             }
         }
